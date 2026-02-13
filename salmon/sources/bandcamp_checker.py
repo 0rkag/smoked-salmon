@@ -81,22 +81,14 @@ def check_item_on_tracker(gazelle_site, item: CollectionItem) -> tuple[str, dict
     raise RateLimitException("Rate limit exceeded after max retries", period_remaining=0)
 
 
-def check_items_on_trackers(
-    items: list[CollectionItem], tracker_list: list[str] | None = None, recheck_days: int = 7
-) -> None:
-    """Check all items against the given trackers in parallel.
+def check_items_on_trackers(items_by_tracker: dict[str, list[CollectionItem]]) -> None:
+    """Check items against their respective trackers in parallel.
 
-    For each item, all trackers are queried concurrently.
+    Each tracker only checks the items that need rechecking on that tracker.
     """
-    if tracker_list is None:
-        tracker_list = salmon.trackers.tracker_list
-    if not tracker_list:
-        click.secho("No trackers configured.", fg="red")
-        return
-
     # Initialize tracker sites up front
     sites = {}
-    for tracker_code in tracker_list:
+    for tracker_code in items_by_tracker:
         try:
             sites[tracker_code] = salmon.trackers.get_class(tracker_code)()
         except Exception as e:
@@ -107,7 +99,10 @@ def check_items_on_trackers(
         return
 
     with ThreadPoolExecutor(max_workers=len(sites)) as pool:
-        futures = {pool.submit(_check_all_items, code, site, items): code for code, site in sites.items()}
+        futures = {
+            pool.submit(_check_all_items, code, site, items_by_tracker[code]): code
+            for code, site in sites.items()
+        }
         for future in as_completed(futures):
             tracker_code = futures[future]
             try:

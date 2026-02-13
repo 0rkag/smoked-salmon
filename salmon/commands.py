@@ -12,6 +12,7 @@ import salmon.checks
 import salmon.converter
 import salmon.database
 import salmon.play
+import salmon.scanner  # noqa F401
 import salmon.search
 import salmon.sources
 import salmon.tagger
