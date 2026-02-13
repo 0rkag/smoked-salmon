@@ -1,6 +1,8 @@
 """Bandcamp collection management commands."""
 
 import asyncio
+import os
+import shutil
 
 import click
 
@@ -11,9 +13,11 @@ from salmon.bandcamp.collection import BandcampCollection
 from salmon.bandcamp.db import (
     get_all_collection_items,
     get_items_needing_check,
+    get_known_item_ids,
     get_known_urls,
     get_tracker_statuses,
     insert_collection_item,
+    purge_bandcamp_data,
 )
 from salmon.bandcamp.display import (
     display_collection,
@@ -25,6 +29,7 @@ from salmon.bandcamp.display import (
 from salmon.bandcamp.downloader import download_and_extract
 from salmon.bandcamp.types import CollectionItem
 from salmon.common import commandgroup
+from salmon.constants import TAG_ENCODINGS
 
 
 def _scrape_and_insert(bc, items, delay=None):
@@ -57,7 +62,7 @@ def _scrape_and_insert(bc, items, delay=None):
 
 def _get_cookies():
     """Resolve Bandcamp cookies from config."""
-    cookies = cfg.bandcamp.cookies if cfg.bandcamp else None
+    cookies = cfg.bandcamp.cookies
     if not cookies:
         click.secho(
             "Bandcamp cookies are required.\nSet them in config.toml under [bandcamp].",
@@ -109,7 +114,12 @@ def import_collection(delay):
 
     click.secho("\nFetching Bandcamp collection...", fg="cyan", bold=True)
     known_urls = get_known_urls()
-    new_items = list(bc.fetch_new_items(known_urls))
+    known_item_ids = get_known_item_ids()
+    try:
+        new_items = list(bc.fetch_new_items(known_urls, known_item_ids))
+    except (OSError, ValueError, RuntimeError, KeyError) as e:
+        click.secho(f"Failed to load purchases from Bandcamp: {e}", fg="red")
+        raise click.Abort() from e
 
     if new_items:
         click.secho(f"\nFound {len(new_items)} new items. Scraping metadata...", fg="cyan")
@@ -117,6 +127,23 @@ def import_collection(delay):
         click.secho(f"Cached {count} new items.", fg="green")
     else:
         click.secho("No new items found.", fg="green")
+
+
+@bandcamp.command()
+@click.option("--statuses-only", is_flag=True, help="Only purge tracker statuses, keep collection items")
+def purge(statuses_only):
+    """Purge cached Bandcamp collection data from the database."""
+    if statuses_only:
+        msg = "This will delete all tracker match results (collection items are kept)."
+    else:
+        msg = "This will delete ALL Bandcamp data (collection items and tracker results)."
+    click.secho(msg, fg="yellow")
+    click.confirm(click.style("Are you sure?", fg="red", bold=True), abort=True)
+
+    col, stat = purge_bandcamp_data(collection=not statuses_only, statuses=True)
+    if not statuses_only:
+        click.secho(f"Deleted {col} collection items.", fg="green")
+    click.secho(f"Deleted {stat} tracker status rows.", fg="green")
 
 
 @bandcamp.command()
@@ -177,10 +204,10 @@ def match(tracker, recheck):
     else:
         click.secho("\nAll items are up to date.", fg="green")
 
-    # Display results
+    # Display results (only for the trackers that were checked)
     all_items = get_all_collection_items()
     tracker_statuses = get_tracker_statuses()
-    display_collection(all_items, tracker_statuses, all_trackers)
+    display_collection(all_items, tracker_statuses, tracker_list)
 
 
 @bandcamp.command()
@@ -243,6 +270,8 @@ def inspect(tracker):
             verify_item_results(found_items[idx], tracker_statuses, tracker_list)
             if i < len(indices) - 1 and not click.confirm("\nNext?", default=True):
                 break
+        # Reload statuses after mutations (verify/FP marks)
+        tracker_statuses = get_tracker_statuses()
 
 
 @bandcamp.command(name="up")
@@ -308,84 +337,126 @@ def bandcamp_up(
         click.secho("No items selected. Done.", fg="green")
         return
 
+    # Validate encoding into (name, is_vbr) tuple like the main up command
+    if encoding:
+        enc_upper = encoding.upper()
+        if enc_upper not in TAG_ENCODINGS:
+            raise click.BadParameter(
+                f"{encoding} is not a valid encoding. Choose from: {', '.join(TAG_ENCODINGS.keys())}",
+                param_hint="'--encoding'",
+            )
+        encoding = TAG_ENCODINGS[enc_upper]
+    else:
+        encoding = (None, None)
+
     cookies = _get_cookies()
     bc = BandcampCollection(cookies)
 
+    click.secho("\nVerifying Bandcamp authentication...", fg="cyan")
+    if not bc.verify_auth():
+        click.secho("Bandcamp authentication failed. Check your cookies.", fg="red")
+        raise click.Abort()
+    click.secho("Authenticated.", fg="green")
+
     click.secho("\nLoading purchases for download...", fg="cyan")
-    bc.bc.load_purchases()
-    bc_purchases = bc.bc.purchases
+    bc.load_purchases()
+    bc_purchases = bc.purchases
 
     from salmon.uploader import upload
     from salmon.uploader.preassumptions import print_preassumptions
 
+    original_yes_all = cfg.upload.yes_all
     if yyy:
         cfg.upload.yes_all = True
 
-    for item, tracker_code in selections:
-        try:
-            bc_item = None
-            for p in bc_purchases:
-                if p.item_id == item.get("bandcamp_item_id"):
-                    bc_item = p
-                    break
-                if (
-                    normalize_str(p.band_name) == normalize_str(item["artist"])
-                    and normalize_str(p.item_title) == normalize_str(item["title"])
-                ):
-                    bc_item = p
-                    break
+    # Cache tracker sessions to avoid re-authenticating per item
+    tracker_sessions: dict[str, object] = {}
 
-            if not bc_item:
+    try:
+        for item, tracker_code in selections:
+            try:
+                bc_item = _find_purchase(bc_purchases, item)
+                if not bc_item:
+                    click.secho(
+                        f"Skipping {item['artist']} — {item['title']} (could not find in purchases)",
+                        fg="red",
+                    )
+                    continue
+
+                extract_dir = download_and_extract(bc, bc_item)
+                if not extract_dir:
+                    click.secho(
+                        f"Skipping {item['artist']} — {item['title']} (download failed)",
+                        fg="red",
+                    )
+                    continue
+
+                try:
+                    click.secho(
+                        f"\nLaunching upload for: {item['artist']} — {item['title']} → {tracker_code}",
+                        fg="cyan",
+                        bold=True,
+                    )
+
+                    if tracker_code not in tracker_sessions:
+                        tracker_sessions[tracker_code] = salmon.trackers.get_class(tracker_code)()
+                    gazelle_site = tracker_sessions[tracker_code]
+
+                    request_id = salmon.trackers.validate_request(gazelle_site, request) if request else None
+                    source_url = (item.get("bandcamp_url") or "").strip() or None
+
+                    print_preassumptions(
+                        gazelle_site, extract_dir, group_id, "WEB", lossy,
+                        spectrals, encoding, spectrals_after,
+                    )
+                    upload(
+                        gazelle_site,
+                        extract_dir,
+                        group_id,
+                        "WEB",
+                        lossy,
+                        spectrals,
+                        encoding,
+                        source_url=source_url,
+                        scene=scene,
+                        overwrite_meta=overwrite,
+                        recompress=compress,
+                        request_id=request_id,
+                        spectrals_after=spectrals_after,
+                        auto_rename=auto_rename,
+                        skip_up=skip_up,
+                        skip_mqa=skip_mqa,
+                        skip_log_check=skip_log_check,
+                        skip_integrity_check=skip_integrity_check,
+                    )
+                finally:
+                    # Clean up extracted files after upload attempt
+                    if extract_dir and os.path.isdir(extract_dir):
+                        shutil.rmtree(extract_dir, ignore_errors=True)
+            except Exception as e:
                 click.secho(
-                    f"Skipping {item['artist']} — {item['title']} (could not find in purchases)",
+                    f"\nUpload failed for {item['artist']} — {item['title']}: {e}",
                     fg="red",
                 )
-                continue
+    finally:
+        cfg.upload.yes_all = original_yes_all
 
-            extract_dir = download_and_extract(bc, bc_item)
-            if not extract_dir:
-                click.secho(
-                    f"Skipping {item['artist']} — {item['title']} (download failed)",
-                    fg="red",
-                )
-                continue
 
-            click.secho(
-                f"\nLaunching upload for: {item['artist']} — {item['title']} → {tracker_code}",
-                fg="cyan",
-                bold=True,
-            )
+def _find_purchase(bc_purchases, item: CollectionItem):
+    """Find the matching bandcampsync purchase for a collection item.
 
-            gazelle_site = salmon.trackers.get_class(tracker_code)()
-            request_id = salmon.trackers.validate_request(gazelle_site, request) if request else None
-            source_url = (item.get("bandcamp_url") or "").strip() or None
-
-            print_preassumptions(
-                gazelle_site, extract_dir, group_id, "WEB", lossy,
-                spectrals, encoding, spectrals_after,
-            )
-            upload(
-                gazelle_site,
-                extract_dir,
-                group_id,
-                "WEB",
-                lossy,
-                spectrals,
-                encoding,
-                source_url=source_url,
-                scene=scene,
-                overwrite_meta=overwrite,
-                recompress=compress,
-                request_id=request_id,
-                spectrals_after=spectrals_after,
-                auto_rename=auto_rename,
-                skip_up=skip_up,
-                skip_mqa=skip_mqa,
-                skip_log_check=skip_log_check,
-                skip_integrity_check=skip_integrity_check,
-            )
-        except Exception as e:
-            click.secho(
-                f"\nUpload failed for {item['artist']} — {item['title']}: {e}",
-                fg="red",
-            )
+    Prefers exact bandcamp_item_id match. Falls back to artist+title+type
+    to avoid confusing track and album purchases that share the same name.
+    """
+    item_type_code = "a" if item.get("item_type") == "album" else "t"
+    for p in bc_purchases:
+        if p.item_id == item.get("bandcamp_item_id"):
+            return p
+    for p in bc_purchases:
+        if (
+            normalize_str(p.band_name) == normalize_str(item["artist"])
+            and normalize_str(p.item_title) == normalize_str(item["title"])
+            and p.tralbum_type == item_type_code
+        ):
+            return p
+    return None

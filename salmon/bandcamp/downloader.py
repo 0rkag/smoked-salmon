@@ -1,16 +1,35 @@
 """Download and extract Bandcamp purchases using bandcampsync."""
 
+from __future__ import annotations
+
 import os
 import re
 import shutil
+from typing import TYPE_CHECKING
 
 import click
 from bandcampsync.download import download_file, is_zip_file, unzip_file
 
 from salmon import cfg
 
+if TYPE_CHECKING:
+    from salmon.bandcamp.collection import BandcampCollection
 
-def download_and_extract(bc, bandcampsync_item, dest_base_dir=None):
+_FORMAT_EXTENSIONS = {
+    "flac": ".flac",
+    "mp3-v0": ".mp3",
+    "mp3-320": ".mp3",
+    "mp3-128": ".mp3",
+    "aac-hi": ".m4a",
+    "vorbis": ".ogg",
+    "alac": ".m4a",
+    "wav": ".wav",
+    "aiff-lossless": ".aiff",
+    "aiff": ".aiff",
+}
+
+
+def download_and_extract(bc: BandcampCollection, bandcampsync_item, dest_base_dir: str | None = None) -> str | None:
     """Download a Bandcamp purchase and extract it.
 
     Args:
@@ -30,7 +49,7 @@ def download_and_extract(bc, bandcampsync_item, dest_base_dir=None):
     click.secho(f"\nDownloading: {artist} — {title}", fg="cyan", bold=True)
 
     # Get download URL via bandcampsync
-    download_format = cfg.bandcamp.download_format if cfg.bandcamp else "flac"
+    download_format = cfg.bandcamp.download_format
     download_url = bc.get_download_url(bandcampsync_item, encoding=download_format)
     if not download_url:
         click.secho("  Could not find download URL. Item may be streaming-only.", fg="red")
@@ -42,14 +61,15 @@ def download_and_extract(bc, bandcampsync_item, dest_base_dir=None):
 
     extract_dir = os.path.join(
         dest_base_dir,
-        _sanitize_dirname(f"{artist} - {title}"),
+        _sanitize_dirname(f"{artist} - {title} [{bandcampsync_item.item_id}]"),
     )
 
-    # Download using bandcampsync's download_file
+    # Download using bandcampsync's download_file (expects an open file handle)
     tmp_file = os.path.join(tmp_dir, f"{bandcampsync_item.item_id}.download")
     try:
-        download_file(download_url, tmp_file)
-    except OSError as e:
+        with open(tmp_file, "wb") as fh:
+            download_file(download_url, fh)
+    except (OSError, ValueError) as e:
         click.secho(f"  Download failed: {e}", fg="red")
         return None
 
@@ -62,9 +82,9 @@ def download_and_extract(bc, bandcampsync_item, dest_base_dir=None):
         else:
             # Single file (track purchase)
             os.makedirs(extract_dir, exist_ok=True)
-            ext = f".{download_format}"
+            ext = _FORMAT_EXTENSIONS.get(download_format, f".{download_format}")
             dest_file = os.path.join(extract_dir, f"{_sanitize_dirname(title)}{ext}")
-            os.rename(tmp_file, dest_file)
+            shutil.move(tmp_file, dest_file)
             click.secho(f"  Saved to {extract_dir}", fg="green")
     except (OSError, ValueError) as e:
         click.secho(f"  Extraction failed: {e}", fg="red")
@@ -72,13 +92,14 @@ def download_and_extract(bc, bandcampsync_item, dest_base_dir=None):
             shutil.rmtree(extract_dir, ignore_errors=True)
         return None
     finally:
-        if os.path.exists(tmp_file):
-            os.remove(tmp_file)
+        # Clean up temp download dir
+        if os.path.isdir(tmp_dir):
+            shutil.rmtree(tmp_dir, ignore_errors=True)
 
     return extract_dir
 
 
-def _sanitize_dirname(name):
+def _sanitize_dirname(name: str) -> str:
     """Remove characters that are invalid in directory names."""
     name = re.sub(r'[<>:"/\\|?*]', "_", name)
     return name.strip(". ")

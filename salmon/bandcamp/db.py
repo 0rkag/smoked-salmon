@@ -5,25 +5,30 @@ from __future__ import annotations
 import json
 import sqlite3
 import threading
+from contextlib import contextmanager
 from datetime import datetime, timedelta
+from typing import Any
 
-from salmon.bandcamp.types import CollectionItem, ResultInfo, TrackerStatus
+import click
+
+from salmon.bandcamp.types import CheckStatus, CollectionItem, ResultInfo, TrackerStatus
 from salmon.database import DB_PATH
 
 _write_lock = threading.Lock()
 
 
-def _safe_json_loads(raw: str | None, default=None):
+def _safe_json_loads(raw: str | None, default: Any = None) -> Any:
     """Parse a JSON string, returning *default* on failure or None input."""
     if not raw:
         return default if default is not None else {}
     try:
         return json.loads(raw)
-    except (json.JSONDecodeError, TypeError):
+    except (json.JSONDecodeError, TypeError) as e:
+        click.secho(f"  Warning: corrupt JSON in DB column: {e}", fg="yellow")
         return default if default is not None else {}
 
 
-def _row_to_item(row) -> CollectionItem:
+def _row_to_item(row: sqlite3.Row) -> CollectionItem:
     """Convert a sqlite3.Row to a CollectionItem, deserializing JSON columns."""
     d = dict(row)
     d["genres"] = _safe_json_loads(d.get("genres"), [])
@@ -32,15 +37,29 @@ def _row_to_item(row) -> CollectionItem:
     return CollectionItem(**d)
 
 
+@contextmanager
 def get_connection():
     conn = sqlite3.connect(DB_PATH, timeout=30)
-    return conn
+    try:
+        with conn:  # auto-commit/rollback
+            yield conn
+    finally:
+        conn.close()
 
 
 def get_known_urls() -> set[str]:
     """Return set of all bandcamp_url values in the collection table."""
     with get_connection() as conn:
         cursor = conn.execute("SELECT bandcamp_url FROM bandcamp_collection")
+        return {row[0] for row in cursor.fetchall()}
+
+
+def get_known_item_ids() -> set[int]:
+    """Return set of all bandcamp_item_id values in the collection table."""
+    with get_connection() as conn:
+        cursor = conn.execute(
+            "SELECT bandcamp_item_id FROM bandcamp_collection WHERE bandcamp_item_id IS NOT NULL"
+        )
         return {row[0] for row in cursor.fetchall()}
 
 
@@ -157,7 +176,7 @@ def get_tracker_statuses() -> dict[int, dict[str, TrackerStatus]]:
 def upsert_tracker_status(
     collection_id: int,
     tracker: str,
-    status: str,
+    status: CheckStatus,
     results: dict[str, ResultInfo] | None = None,
 ) -> None:
     """Insert or update tracker status for a collection item."""
@@ -192,7 +211,10 @@ def mark_false_positive(collection_id: int, tracker: str) -> None:
 
     Also sets ``false_positive: true`` on every result entry in the stored
     JSON so the merge logic in the checker has accurate per-result FP flags.
+    Updates ``checked_at`` so the recheck scheduler respects the configured
+    delay before re-queuing the item.
     """
+    now = datetime.now().isoformat()
     with _write_lock, get_connection() as conn:
         row = conn.execute(
             "SELECT results FROM bandcamp_collection_tracker_status WHERE collection_id = ? AND tracker = ?",
@@ -207,12 +229,13 @@ def mark_false_positive(collection_id: int, tracker: str) -> None:
             results_json = "{}"
         conn.execute(
             """UPDATE bandcamp_collection_tracker_status
-               SET status   = 'false_positive',
-                   group_id = NULL,
-                   results  = ?
+               SET status     = 'false_positive',
+                   group_id   = NULL,
+                   results    = ?,
+                   checked_at = ?
                WHERE collection_id = ?
                  AND tracker = ?""",
-            (results_json, collection_id, tracker),
+            (results_json, now, collection_id, tracker),
         )
 
 
@@ -282,3 +305,18 @@ def get_items_needing_check(
             ),
         )
         return [_row_to_item(row) for row in cursor.fetchall()]
+
+
+def purge_bandcamp_data(*, collection: bool = True, statuses: bool = True) -> tuple[int, int]:
+    """Delete rows from bandcamp tables.
+
+    Returns (collection_deleted, statuses_deleted) counts.
+    """
+    col_count = 0
+    stat_count = 0
+    with _write_lock, get_connection() as conn:
+        if statuses:
+            stat_count = conn.execute("DELETE FROM bandcamp_collection_tracker_status").rowcount
+        if collection:
+            col_count = conn.execute("DELETE FROM bandcamp_collection").rowcount
+    return col_count, stat_count

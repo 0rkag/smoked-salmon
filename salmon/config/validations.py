@@ -208,7 +208,10 @@ class Upload(BaseStruct):
     compression: UploadCompression = msgspec.field(default_factory=UploadCompression)
 
 
-BANDCAMP_FORMATS = ("flac", "mp3-v0", "mp3-320", "aac-hi", "vorbis", "alac", "wav", "aiff-lossless")
+BANDCAMP_FORMATS = (
+    "flac", "mp3-v0", "mp3-320", "mp3-128", "aac-hi",
+    "vorbis", "alac", "wav", "aiff-lossless", "aiff",
+)
 
 
 class BandcampSettings(BaseStruct):

@@ -88,14 +88,14 @@ def display_collection(
     )
 
 
-def normalize_str(s):
+def normalize_str(s: str) -> str:
     """Normalize a string for fuzzy comparison."""
     s = normalize("NFKD", s).encode("ascii", "ignore").decode()
     s = re.sub(r"[^a-z0-9 ]", "", s.lower())
     return re.sub(r"\s+", " ", s).strip()
 
 
-def _strings_similar(a, b):
+def _strings_similar(a: str, b: str) -> bool:
     """Check if two strings are similar after normalization."""
     na, nb = normalize_str(a), normalize_str(b)
     if not na or not nb:
@@ -106,7 +106,7 @@ def _strings_similar(a, b):
     return na in nb or nb in na
 
 
-def _tag_overlap(tags_a, tags_b):
+def _tag_overlap(tags_a: list[str] | None, tags_b: list[str] | None) -> float:
     """Return Jaccard similarity of two tag lists."""
     sa = {t.lower() for t in (tags_a or [])}
     sb = {t.lower() for t in (tags_b or [])}

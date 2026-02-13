@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -11,9 +12,23 @@ from ratelimit import RateLimitException
 import salmon.trackers
 from salmon.bandcamp.db import get_item_tracker_status, upsert_tracker_status
 from salmon.bandcamp.types import CollectionItem, ResultInfo, TorrentSummary
-from salmon.uploader.dupe_checker import generate_dupe_check_searchstrs, get_search_results
+from salmon.uploader.dupe_checker import generate_dupe_check_searchstrs
 
 MAX_RETRIES = 5
+
+
+def _search_tracker(gazelle_site, searchstrs: list[str], loop: asyncio.AbstractEventLoop) -> list[dict]:
+    """Run browse searches on a tracker, reusing the given event loop."""
+    async def _search():
+        tasks = [gazelle_site.request("browse", searchstr=s) for s in searchstrs]
+        return await asyncio.gather(*tasks)
+
+    results = []
+    for releases in loop.run_until_complete(_search()):
+        for release in releases["results"]:
+            if release not in results:
+                results.append(release)
+    return results
 
 
 def _summarize_results(results: list[dict]) -> dict[str, ResultInfo]:
@@ -32,7 +47,7 @@ def _summarize_results(results: list[dict]) -> dict[str, ResultInfo]:
                 if name and name not in seen:
                     seen.add(name)
                     artists.append(name)
-        summary[gid] = ResultInfo(
+        summary[str(gid)] = ResultInfo(
             groupName=r.get("groupName"),
             artist=r.get("artist"),
             artists=artists,
@@ -53,11 +68,14 @@ def _summarize_results(results: list[dict]) -> dict[str, ResultInfo]:
     return summary
 
 
-def check_item_on_tracker(gazelle_site, item: CollectionItem) -> tuple[str, dict[str, ResultInfo]]:
+def check_item_on_tracker(
+    gazelle_site, item: CollectionItem, loop: asyncio.AbstractEventLoop,
+) -> tuple[str, dict[str, ResultInfo]]:
     """Check if a collection item exists on a tracker.
 
     Returns (status, results) tuple where results is a dict keyed by groupId.
-    Retries on rate limit errors with backoff.
+    Retries on rate limit errors with backoff. Uses the provided event loop
+    to avoid creating/destroying a loop per item.
     """
     artists = [[item["artist"], "main"]]
     searchstrs = generate_dupe_check_searchstrs(artists, item["title"])
@@ -66,7 +84,7 @@ def check_item_on_tracker(gazelle_site, item: CollectionItem) -> tuple[str, dict
 
     for attempt in range(MAX_RETRIES):
         try:
-            results = get_search_results(gazelle_site, searchstrs)
+            results = _search_tracker(gazelle_site, searchstrs, loop)
             if results:
                 return "found", _summarize_results(results)
             return "not_found", {}
@@ -127,7 +145,8 @@ def _merge_fp_results(
     old_gids = set(old_results)
     merged: dict[str, ResultInfo] = {}
 
-    # Carry forward old FP results (update torrent data if re-found)
+    # Carry forward old FP results (update torrent data if re-found,
+    # clear stale torrents if the group is no longer in search results)
     for gid, info in old_results.items():
         merged[gid] = ResultInfo(
             groupName=info.get("groupName"),
@@ -136,7 +155,7 @@ def _merge_fp_results(
             groupYear=info.get("groupYear"),
             releaseType=info.get("releaseType"),
             tags=info.get("tags", []),
-            torrents=new_results[gid]["torrents"] if gid in new_results else info.get("torrents", []),
+            torrents=new_results[gid]["torrents"] if gid in new_results else [],
             false_positive=True,
         )
 
@@ -161,13 +180,25 @@ def _merge_fp_results(
 def _check_all_items(tracker_code: str, gazelle_site, items: list[CollectionItem]) -> None:
     """Check all items against a single tracker (runs in its own thread).
 
+    Creates a single event loop for the thread's lifetime to avoid the
+    overhead of creating/destroying one per item via asyncio.run().
     DB writes go through bandcamp_db which serializes them via a write lock.
     """
+    loop = asyncio.new_event_loop()
+    try:
+        _check_all_items_with_loop(tracker_code, gazelle_site, items, loop)
+    finally:
+        loop.close()
+
+
+def _check_all_items_with_loop(
+    tracker_code: str, gazelle_site, items: list[CollectionItem], loop: asyncio.AbstractEventLoop,
+) -> None:
     click.secho(f"\n  Checking against {tracker_code}...", fg="cyan", bold=True)
     for i, item in enumerate(items):
         click.echo(f"    {tracker_code} [{i + 1}/{len(items)}] {item['artist']} - {item['title']}")
         try:
-            status, results = check_item_on_tracker(gazelle_site, item)
+            status, results = check_item_on_tracker(gazelle_site, item, loop)
 
             # Merge with existing FP results if the item was previously false_positive
             # and there are new search results to merge with. If no results at all,
