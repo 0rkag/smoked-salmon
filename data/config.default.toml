@@ -203,3 +203,13 @@ session = 'get-from-site-cookie'
 # compress_spectrals = true
 # lma_comment_in_t_desc = false
 # use_upc_as_catno = true
+
+# ===============================
+# BANDCAMP SETTINGS
+# ===============================
+# Used by `salmon bandcamp` commands to manage your Bandcamp collection.
+# [bandcamp]
+# Full Cookie header from bandcamp.com (log in, open DevTools, copy Cookie header value)
+# cookies = 'your-full-cookie-header-string'
+# Download format: flac (default), mp3, wav, etc.
+# download_format = 'flac'

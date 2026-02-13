@@ -38,6 +38,7 @@ dependencies = [
     "humanfriendly>=10.0",
     "pillow>=11.3.0",
     "pyimgbox>=1.0.7",
+    "bandcampsync>=0.7.0",
 ]
 
 [project.scripts]

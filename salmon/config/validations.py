@@ -208,6 +208,11 @@ class Upload(BaseStruct):
     compression: UploadCompression = msgspec.field(default_factory=UploadCompression)
 
 
+class BandcampSettings(BaseStruct):
+    cookies: str | None = None
+    download_format: str = "flac"
+
+
 class Cfg(BaseStruct):
     "This class defines the schema that msgspec uses to parse the config"
 
@@ -217,3 +222,4 @@ class Cfg(BaseStruct):
     tracker: Tracker = msgspec.field(default_factory=Tracker)
     seedbox: list[Seedbox] = msgspec.field(default_factory=list)
     upload: Upload = msgspec.field(default_factory=Upload)
+    bandcamp: BandcampSettings = msgspec.field(default_factory=BandcampSettings)
