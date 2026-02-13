@@ -159,9 +159,12 @@ def check_existing_group(gazelle_site, searchstrs, offer_deletion=True):
 
 
 def get_search_results(gazelle_site, searchstrs):
+    async def _search():
+        tasks = [gazelle_site.request("browse", searchstr=searchstr) for searchstr in searchstrs]
+        return await asyncio.gather(*tasks)
+
     results = []
-    tasks = [gazelle_site.request("browse", searchstr=searchstr) for searchstr in searchstrs]
-    for releases in asyncio.run(asyncio.gather(*tasks)):
+    for releases in asyncio.run(_search()):
         for release in releases["results"]:
             if release not in results:
                 results.append(release)
