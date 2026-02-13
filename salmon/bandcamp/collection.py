@@ -6,9 +6,11 @@ import json
 from collections.abc import AsyncIterator, Iterator
 
 import click
+import httpx
 from bandcampsync.bandcamp import Bandcamp
 
-from salmon.sources.bandcamp_types import AlbumMetadata, CollectionItem
+from salmon.bandcamp.types import AlbumMetadata, CollectionItem
+from salmon.errors import ScrapeError
 from salmon.tagger.sources.bandcamp import Scraper as BandcampScraper
 
 
@@ -25,7 +27,7 @@ class BandcampCollection:
         try:
             self.bc.verify_authentication()
             return True
-        except Exception:
+        except (OSError, ValueError, RuntimeError):
             return False
 
     def fetch_new_items(self, known_urls: set[str] | None = None) -> Iterator[CollectionItem]:
@@ -103,6 +105,10 @@ class BandcampCollection:
         except (AttributeError, KeyError):
             pass
 
+        click.secho(
+            f"  Warning: could not extract URL for {item.band_name} - {item.item_title} (item_id={item.item_id})",
+            fg="yellow",
+        )
         return None
 
     def get_download_url(self, item_ref, encoding="flac"):
@@ -122,7 +128,7 @@ class BandcampCollection:
                 if checked:
                     return checked
                 return url
-        except Exception as e:
+        except (OSError, ValueError, RuntimeError, KeyError) as e:
             click.secho(f"  Failed to get download URL: {e}", fg="red")
         return None
 
@@ -130,60 +136,68 @@ class BandcampCollection:
         """Scrape full metadata from an album page using the existing scraper."""
         try:
             soup = await self.scraper.create_soup(bandcamp_url)
-        except Exception as e:
+        except (ScrapeError, httpx.HTTPError, OSError) as e:
             click.secho(f"  Failed to scrape {bandcamp_url}: {e}", fg="red")
             return None
 
         metadata = {}
         try:
             metadata["release_date"] = self.scraper.parse_release_date(soup)
-        except Exception:
+        except (AttributeError, ValueError, TypeError) as e:
+            click.secho(f"  Warning: failed to parse release_date from {bandcamp_url}: {e}", fg="yellow")
             metadata["release_date"] = None
 
         try:
             metadata["label"] = self.scraper.parse_release_label(soup)
-        except Exception:
+        except (AttributeError, ValueError, TypeError) as e:
+            click.secho(f"  Warning: failed to parse label from {bandcamp_url}: {e}", fg="yellow")
             metadata["label"] = None
 
         try:
             raw_tags = [a.string.strip() for a in soup.select(".tralbumData.tralbum-tags a.tag") if a.string]
             metadata["tags"] = raw_tags
-        except Exception:
+        except (AttributeError, TypeError) as e:
+            click.secho(f"  Warning: failed to parse tags from {bandcamp_url}: {e}", fg="yellow")
             metadata["tags"] = []
 
         try:
             genres = self.scraper.parse_genres(soup)
             metadata["genres"] = list(genres) if genres else []
-        except Exception:
+        except (AttributeError, ValueError, TypeError) as e:
+            click.secho(f"  Warning: failed to parse genres from {bandcamp_url}: {e}", fg="yellow")
             metadata["genres"] = []
 
         try:
             metadata["cover_url"] = self.scraper.parse_cover_url(soup)
-        except Exception:
+        except (AttributeError, ValueError, TypeError) as e:
+            click.secho(f"  Warning: failed to parse cover_url from {bandcamp_url}: {e}", fg="yellow")
             metadata["cover_url"] = None
 
         try:
             tracks = self.scraper.parse_tracks(soup)
             metadata["tracks"] = tracks
             metadata["track_count"] = sum(len(disc) for disc in tracks.values())
-        except Exception:
+        except (AttributeError, ValueError, TypeError, KeyError) as e:
+            click.secho(f"  Warning: failed to parse tracks from {bandcamp_url}: {e}", fg="yellow")
             metadata["tracks"] = {}
             metadata["track_count"] = 0
 
         try:
             about_el = soup.select_one(".tralbumData.tralbum-about")
             metadata["description"] = about_el.text.strip() if about_el else None
-        except Exception:
+        except (AttributeError, TypeError) as e:
+            click.secho(f"  Warning: failed to parse description from {bandcamp_url}: {e}", fg="yellow")
             metadata["description"] = None
 
         try:
             credits_el = soup.select_one(".tralbumData.tralbum-credits")
             metadata["credits"] = credits_el.text.strip() if credits_el else None
-        except Exception:
+        except (AttributeError, TypeError) as e:
+            click.secho(f"  Warning: failed to parse credits from {bandcamp_url}: {e}", fg="yellow")
             metadata["credits"] = None
 
         metadata["barcode"] = self._parse_barcode(soup)
-        return metadata
+        return AlbumMetadata(**metadata)
 
     async def scrape_and_yield(self, items: list[CollectionItem]) -> AsyncIterator[CollectionItem]:
         """Scrape metadata for each item and yield it immediately.
@@ -201,8 +215,8 @@ class BandcampCollection:
             if not metadata:
                 click.secho(f"  Skipping [{i + 1}]: {item['artist']} - {item['title']} (scrape failed)", fg="red")
                 continue
-            item.update(metadata)
-            yield item
+            merged = CollectionItem(**{**item, **metadata})
+            yield merged
 
     @staticmethod
     def _parse_barcode(soup):
@@ -214,6 +228,6 @@ class BandcampCollection:
                     identifier = release.get("identifier")
                     if identifier:
                         return identifier
-        except Exception:
+        except (json.JSONDecodeError, AttributeError, TypeError, KeyError):
             pass
         return None

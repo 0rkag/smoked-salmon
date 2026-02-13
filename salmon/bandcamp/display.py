@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import json
 import re
 from unicodedata import normalize
 
 import click
 
 import salmon.trackers
-from salmon.sources.bandcamp_types import CollectionItem, ResultInfo, TrackerStatus
+from salmon.bandcamp.types import CollectionItem, ResultInfo, TrackerStatus
 
 
 def display_collection(
@@ -19,10 +18,10 @@ def display_collection(
 ) -> None:
     """Display collection items with tracker status indicators."""
     uploadable = 0
-    found_statuses = {"found", "verified", "false_positive"}
+    on_tracker = {"found", "verified"}
     for item in items:
         statuses = tracker_statuses.get(item["id"], {})
-        if any(statuses.get(t, {}).get("status") not in found_statuses for t in tracker_list):
+        if any(statuses.get(t, {}).get("status") not in on_tracker for t in tracker_list):
             uploadable += 1
 
     click.secho(
@@ -76,12 +75,9 @@ def display_collection(
         elif track_count > 0:
             details.append(f"{track_count} tracks")
 
-        genres = item.get("genres")
+        genres = item.get("genres", [])
         if genres:
-            if isinstance(genres, str):
-                genres = json.loads(genres)
-            if genres:
-                details.append(", ".join(genres[:3]))
+            details.append(", ".join(genres[:3]))
 
         if details:
             click.echo(f"       {' · '.join(details)}")
@@ -92,7 +88,7 @@ def display_collection(
     )
 
 
-def _normalize_str(s):
+def normalize_str(s):
     """Normalize a string for fuzzy comparison."""
     s = normalize("NFKD", s).encode("ascii", "ignore").decode()
     s = re.sub(r"[^a-z0-9 ]", "", s.lower())
@@ -101,7 +97,7 @@ def _normalize_str(s):
 
 def _strings_similar(a, b):
     """Check if two strings are similar after normalization."""
-    na, nb = _normalize_str(a), _normalize_str(b)
+    na, nb = normalize_str(a), normalize_str(b)
     if not na or not nb:
         return False
     if na == nb:
@@ -183,19 +179,13 @@ def _display_item_header(item: CollectionItem) -> None:
     if track_count > 0:
         click.echo(f"  {track_count} track{'s' if track_count != 1 else ''}")
 
-    genres = item.get("genres")
+    genres = item.get("genres", [])
     if genres:
-        if isinstance(genres, str):
-            genres = json.loads(genres)
-        if genres:
-            click.echo(f"  Genres: {', '.join(genres)}")
+        click.echo(f"  Genres: {', '.join(genres)}")
 
-    tags = item.get("tags")
+    tags = item.get("tags", [])
     if tags:
-        if isinstance(tags, str):
-            tags = json.loads(tags)
-        if tags:
-            click.echo(f"  Tags: {', '.join(tags)}")
+        click.echo(f"  Tags: {', '.join(tags)}")
 
     if item.get("barcode"):
         click.echo(f"  Barcode: {item['barcode']}")
@@ -204,32 +194,42 @@ def _display_item_header(item: CollectionItem) -> None:
         click.echo(f"  {item['bandcamp_url']}")
 
 
-def _display_tracker_results(tracker: str, results: dict[str, ResultInfo], group_id: int | None = None) -> list[str]:
+def _display_tracker_results(
+    tracker: str,
+    results: dict[str, ResultInfo],
+    group_id: int | None = None,
+    show_fp: bool = False,
+) -> tuple[list[str], int]:
     """Display match results for a single tracker, numbering each match.
 
-    Returns the list of group ID strings in display order.
+    Returns ``(gids_in_display_order, hidden_fp_count)``.  When *show_fp* is
+    False, false-positive results are hidden; when True they are appended at
+    the end with a dimmed ``[FP]`` marker.
     """
-    gids = list(results.keys())
+    non_fp = [(gid, info) for gid, info in results.items() if not info.get("false_positive")]
+    fp = [(gid, info) for gid, info in results.items() if info.get("false_positive")]
 
-    for num, gid in enumerate(gids, 1):
-        info = results[gid]
+    display_pairs = non_fp + (fp if show_fp else [])
+    gids = [gid for gid, _ in display_pairs]
+    hidden_fp = len(fp) if not show_fp else 0
+
+    for num, (gid, info) in enumerate(display_pairs, 1):
         artist = info.get("artist", "?")
         name = info.get("groupName", "?")
         year = info.get("groupYear", "?")
         rtype = info.get("releaseType", "?")
 
-        verified_marker = ""
+        markers = ""
         if group_id is not None and str(group_id) == str(gid):
-            verified_marker = click.style(" [verified]", fg="green")
+            markers += click.style(" [verified]", fg="green")
+        if info.get("false_positive"):
+            markers += click.style(" [FP]", fg="bright_black")
 
-        click.echo(
-            f"    {num}) [{gid}] "
-            + click.style(f"{artist} — {name}", bold=True)
-            + f" ({year}, {rtype})"
-            + verified_marker
-        )
+        is_fp = info.get("false_positive")
+        label = click.style(f"{artist} — {name}", bold=not is_fp, dim=bool(is_fp))
 
-        # Show detailed artists if different from summary
+        click.echo(f"    {num}) [{gid}] " + label + f" ({year}, {rtype})" + markers)
+
         artists = info.get("artists", [])
         if artists and artist == "Various Artists":
             click.echo(f"           {', '.join(artists[:10])}" + ("..." if len(artists) > 10 else ""))
@@ -250,7 +250,7 @@ def _display_tracker_results(tracker: str, results: dict[str, ResultInfo], group
                 f"  — " + click.style(f"{seeders}s", fg=seed_color) + f" / {snatches}sn"
             )
 
-    return gids
+    return gids, hidden_fp
 
 
 def display_item_results(
@@ -275,12 +275,17 @@ def display_item_results(
             "false_positive": "red",
         }
         color = status_colors.get(status, "yellow")
-        label = f"{len(results)} match(es)" if status in ("found", "verified") and results else status
+        if status in ("found", "verified") and results:
+            label = f"{len(results)} match(es)"
+        elif status == "false_positive" and results:
+            label = f"false_positive ({len(results)} FP result{'s' if len(results) != 1 else ''})"
+        else:
+            label = status
 
         click.echo(f"\n  {tracker}: " + click.style(label, fg=color))
 
         if results:
-            _display_tracker_results(tracker, results, group_id)
+            _display_tracker_results(tracker, results, group_id, show_fp=True)
 
 
 def verify_item_results(
@@ -293,7 +298,7 @@ def verify_item_results(
     When a match is verified on one tracker, subsequent trackers with a similar
     result will have that match preselected as the default.
     """
-    from salmon.sources.bandcamp_db import mark_false_positive, verify_tracker_match
+    from salmon.bandcamp.db import mark_false_positive, verify_tracker_match
 
     statuses = tracker_statuses.get(item["id"], {})
     _display_item_header(item)
@@ -315,30 +320,46 @@ def verify_item_results(
                 verified_info = results[str(group_id)]
             continue
 
-        if status != "found" or not results:
-            status_colors = {"not_found": "red", "false_positive": "red"}
+        if status not in ("found", "false_positive") or not results:
+            status_colors = {"not_found": "red"}
             color = status_colors.get(status, "yellow")
             click.echo(f"\n  {tracker}: " + click.style(status, fg=color))
             continue
 
-        click.echo(f"\n  {tracker}: " + click.style(f"{len(results)} match(es)", fg="green"))
-        gids = _display_tracker_results(tracker, results)
-
-        # Check if a previous verification suggests a match here
-        suggested_num = None
-        if verified_info:
-            suggested_gid = _find_matching_result(verified_info, results)
-            if suggested_gid:
-                suggested_num = gids.index(suggested_gid) + 1
-
+        show_fp = False
         while True:
+            # (Re-)display results with current FP visibility
+            non_fp_count = sum(1 for r in results.values() if not r.get("false_positive"))
+            fp_count = sum(1 for r in results.values() if r.get("false_positive"))
+
+            if status == "false_positive":
+                click.echo(
+                    f"\n  {tracker}: "
+                    + click.style(f"false_positive ({fp_count} FP result{'s' if fp_count != 1 else ''})", fg="red")
+                )
+            else:
+                click.echo(f"\n  {tracker}: " + click.style(f"{non_fp_count} match(es)", fg="green"))
+
+            gids, hidden_fp = _display_tracker_results(tracker, results, show_fp=show_fp)
+
+            # Check if a previous verification suggests a match here
+            suggested_num = None
+            if verified_info:
+                suggested_gid = _find_matching_result(verified_info, results)
+                if suggested_gid and suggested_gid in gids:
+                    suggested_num = gids.index(suggested_gid) + 1
+
             prompt_parts = []
             if len(gids) == 1:
                 prompt_parts.append("1 to confirm")
-            else:
+            elif len(gids) > 1:
                 prompt_parts.append(f"1-{len(gids)} to confirm")
             prompt_parts.append("[f]alse positive")
             prompt_parts.append("[s]kip")
+            if hidden_fp > 0:
+                prompt_parts.append(f"[h]idden ({hidden_fp})")
+            elif show_fp and fp_count > 0:
+                prompt_parts.append("[h]ide FPs")
 
             default = str(suggested_num) if suggested_num else "s"
 
@@ -353,6 +374,9 @@ def verify_item_results(
 
             if choice == "s":
                 break
+            if choice == "h":
+                show_fp = not show_fp
+                continue
             if choice == "f":
                 mark_false_positive(item["id"], tracker)
                 click.secho(f"    Marked as false positive on {tracker}.", fg="yellow")
@@ -389,7 +413,7 @@ def select_items(items: list[CollectionItem], tracker_list: list[str]) -> list[t
         if selection.strip().lower().startswith("q"):
             return []
 
-        indices = _parse_selection(selection, len(items))
+        indices = parse_selection(selection, len(items))
         if not indices:
             click.secho("Invalid selection. Try again.", fg="red")
             continue
@@ -415,7 +439,7 @@ def select_items(items: list[CollectionItem], tracker_list: list[str]) -> list[t
             return [(item, tracker) for item in selected_items]
 
 
-def _parse_selection(selection_str: str, max_items: int) -> list[int] | None:
+def parse_selection(selection_str: str, max_items: int) -> list[int] | None:
     """Parse a selection string like '3', '1-5', '2,4,6' into 0-based indices."""
     indices = set()
     parts = selection_str.replace(" ", "").split(",")

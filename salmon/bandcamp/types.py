@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from typing import NotRequired, TypedDict
+from typing import Literal, NotRequired, TypedDict
+
+ItemType = Literal["album", "track"]
+CheckStatus = Literal["found", "not_found", "false_positive", "verified", "unknown"]
 
 
 class AlbumMetadata(TypedDict):
@@ -28,16 +31,16 @@ class CollectionItem(TypedDict):
     bandcamp_item_id: int | None
     artist: str
     title: str
-    item_type: str
+    item_type: ItemType
     purchase_date: str | None
     release_date: NotRequired[str | None]
     label: NotRequired[str | None]
     barcode: NotRequired[str | None]
-    genres: NotRequired[str | list[str]]
-    tags: NotRequired[str | list[str]]
+    genres: NotRequired[list[str]]
+    tags: NotRequired[list[str]]
     cover_url: NotRequired[str | None]
     track_count: NotRequired[int]
-    tracks: NotRequired[str | dict]
+    tracks: NotRequired[dict]
     description: NotRequired[str | None]
     credits: NotRequired[str | None]
     fetched_at: NotRequired[str]
@@ -63,12 +66,13 @@ class ResultInfo(TypedDict):
     releaseType: str | None
     tags: list[str]
     torrents: list[TorrentSummary]
+    false_positive: NotRequired[bool]
 
 
 class TrackerStatus(TypedDict):
     """Tracker check status for a collection item."""
 
-    status: str
+    status: CheckStatus
     results: dict[str, ResultInfo]
     group_id: int | None
     checked_at: str

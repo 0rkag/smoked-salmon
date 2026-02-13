@@ -208,9 +208,25 @@ class Upload(BaseStruct):
     compression: UploadCompression = msgspec.field(default_factory=UploadCompression)
 
 
+BANDCAMP_FORMATS = ("flac", "mp3-v0", "mp3-320", "aac-hi", "vorbis", "alac", "wav", "aiff-lossless")
+
+
 class BandcampSettings(BaseStruct):
     cookies: str | None = None
     download_format: str = "flac"
+    recheck_not_found_days: int = 1
+    recheck_false_positive_days: int = 3
+    recheck_found_days: int = 7
+
+    def __post_init__(self):
+        if self.download_format not in BANDCAMP_FORMATS:
+            raise ValueError(
+                f"Invalid bandcamp download_format '{self.download_format}'. "
+                f"Must be one of: {', '.join(BANDCAMP_FORMATS)}"
+            )
+        for field in ("recheck_not_found_days", "recheck_false_positive_days", "recheck_found_days"):
+            if getattr(self, field) < 1:
+                raise ValueError(f"bandcamp.{field} must be >= 1")
 
 
 class Cfg(BaseStruct):

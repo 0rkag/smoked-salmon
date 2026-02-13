@@ -9,8 +9,8 @@ import click
 from ratelimit import RateLimitException
 
 import salmon.trackers
-from salmon.sources.bandcamp_db import upsert_tracker_status
-from salmon.sources.bandcamp_types import CollectionItem, ResultInfo, TorrentSummary
+from salmon.bandcamp.db import get_item_tracker_status, upsert_tracker_status
+from salmon.bandcamp.types import CollectionItem, ResultInfo, TorrentSummary
 from salmon.uploader.dupe_checker import generate_dupe_check_searchstrs, get_search_results
 
 MAX_RETRIES = 5
@@ -84,7 +84,9 @@ def check_item_on_tracker(gazelle_site, item: CollectionItem) -> tuple[str, dict
 def check_items_on_trackers(items_by_tracker: dict[str, list[CollectionItem]]) -> None:
     """Check items against their respective trackers in parallel.
 
-    Each tracker only checks the items that need rechecking on that tracker.
+    Each tracker runs in its own thread. DB writes are serialized via a
+    module-level lock in bandcamp_db, so per-item results are persisted
+    immediately (surviving crashes mid-check).
     """
     # Initialize tracker sites up front
     sites = {}
@@ -111,21 +113,86 @@ def check_items_on_trackers(items_by_tracker: dict[str, list[CollectionItem]]) -
                 click.secho(f"  {tracker_code}: fatal error - {e}", fg="red")
 
 
+def _merge_fp_results(
+    old_results: dict[str, ResultInfo],
+    new_results: dict[str, ResultInfo],
+) -> tuple[str, dict[str, ResultInfo]]:
+    """Merge new search results with previously-FP'd results.
+
+    Old group IDs are kept with ``false_positive: True`` (torrent data updated
+    from the new search if available).  New group IDs not in old get
+    ``false_positive: False``.  Returns ``("found", merged)`` if any non-FP
+    result exists, otherwise ``("false_positive", merged)``.
+    """
+    old_gids = set(old_results)
+    merged: dict[str, ResultInfo] = {}
+
+    # Carry forward old FP results (update torrent data if re-found)
+    for gid, info in old_results.items():
+        merged[gid] = ResultInfo(
+            groupName=info.get("groupName"),
+            artist=info.get("artist"),
+            artists=info.get("artists", []),
+            groupYear=info.get("groupYear"),
+            releaseType=info.get("releaseType"),
+            tags=info.get("tags", []),
+            torrents=new_results[gid]["torrents"] if gid in new_results else info.get("torrents", []),
+            false_positive=True,
+        )
+
+    # Add genuinely new results
+    for gid, info in new_results.items():
+        if gid not in old_gids:
+            merged[gid] = ResultInfo(
+                groupName=info.get("groupName"),
+                artist=info.get("artist"),
+                artists=info.get("artists", []),
+                groupYear=info.get("groupYear"),
+                releaseType=info.get("releaseType"),
+                tags=info.get("tags", []),
+                torrents=info.get("torrents", []),
+                false_positive=False,
+            )
+
+    has_non_fp = any(not r.get("false_positive") for r in merged.values())
+    return ("found" if has_non_fp else "false_positive"), merged
+
+
 def _check_all_items(tracker_code: str, gazelle_site, items: list[CollectionItem]) -> None:
-    """Check all items against a single tracker (runs in its own thread)."""
+    """Check all items against a single tracker (runs in its own thread).
+
+    DB writes go through bandcamp_db which serializes them via a write lock.
+    """
     click.secho(f"\n  Checking against {tracker_code}...", fg="cyan", bold=True)
     for i, item in enumerate(items):
         click.echo(f"    {tracker_code} [{i + 1}/{len(items)}] {item['artist']} - {item['title']}")
         try:
             status, results = check_item_on_tracker(gazelle_site, item)
+
+            # Merge with existing FP results if the item was previously false_positive
+            # and there are new search results to merge with. If no results at all,
+            # the item goes to not_found (the old FP groups are no longer matching).
+            existing = get_item_tracker_status(item["id"], tracker_code)
+            if existing and existing["status"] == "false_positive" and existing["results"] and results:
+                status, results = _merge_fp_results(existing["results"], results)
+
             upsert_tracker_status(item["id"], tracker_code, status, results)
             if status == "found":
-                n = len(results)
+                n = sum(1 for r in results.values() if not r.get("false_positive"))
                 click.echo(
-                    f"      {tracker_code}: " + click.style(f"found ({n} match{'es' if n != 1 else ''})", fg="green")
+                    f"      {tracker_code}: "
+                    + click.style(f"found ({n} new match{'es' if n != 1 else ''})", fg="green")
+                )
+            elif status == "false_positive":
+                click.echo(
+                    f"      {tracker_code}: "
+                    + click.style("rechecked, still only FP matches", fg="yellow")
                 )
             else:
                 click.echo(f"      {tracker_code}: " + click.style("not found", fg="red"))
         except Exception as e:
             click.secho(f"      {tracker_code}: error - {e}", fg="red")
-            upsert_tracker_status(item["id"], tracker_code, "unknown")
+            try:
+                upsert_tracker_status(item["id"], tracker_code, "unknown")
+            except Exception:
+                click.secho(f"      {tracker_code}: failed to persist error status", fg="red")

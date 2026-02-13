@@ -2,6 +2,7 @@
 
 import os
 import re
+import shutil
 
 import click
 from bandcampsync.download import download_file, is_zip_file, unzip_file
@@ -48,7 +49,7 @@ def download_and_extract(bc, bandcampsync_item, dest_base_dir=None):
     tmp_file = os.path.join(tmp_dir, f"{bandcampsync_item.item_id}.download")
     try:
         download_file(download_url, tmp_file)
-    except Exception as e:
+    except OSError as e:
         click.secho(f"  Download failed: {e}", fg="red")
         return None
 
@@ -65,8 +66,10 @@ def download_and_extract(bc, bandcampsync_item, dest_base_dir=None):
             dest_file = os.path.join(extract_dir, f"{_sanitize_dirname(title)}{ext}")
             os.rename(tmp_file, dest_file)
             click.secho(f"  Saved to {extract_dir}", fg="green")
-    except Exception as e:
+    except (OSError, ValueError) as e:
         click.secho(f"  Extraction failed: {e}", fg="red")
+        if os.path.isdir(extract_dir):
+            shutil.rmtree(extract_dir, ignore_errors=True)
         return None
     finally:
         if os.path.exists(tmp_file):

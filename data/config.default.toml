@@ -211,5 +211,9 @@ session = 'get-from-site-cookie'
 # [bandcamp]
 # Full Cookie header from bandcamp.com (log in, open DevTools, copy Cookie header value)
 # cookies = 'your-full-cookie-header-string'
-# Download format: flac (default), mp3, wav, etc.
+# Download format (valid: flac, mp3-v0, mp3-320, aac-hi, vorbis, alac, wav, aiff-lossless)
 # download_format = 'flac'
+# Recheck delays (days) for each status when running `salmon bandcamp match`
+# recheck_not_found_days = 1
+# recheck_false_positive_days = 3
+# recheck_found_days = 7

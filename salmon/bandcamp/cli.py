@@ -6,36 +6,51 @@ import click
 
 import salmon.trackers
 from salmon import cfg
-from salmon.common import commandgroup
-from salmon.sources.bandcamp_checker import check_items_on_trackers
-from salmon.sources.bandcamp_collection import BandcampCollection
-from salmon.sources.bandcamp_db import (
+from salmon.bandcamp.checker import check_items_on_trackers
+from salmon.bandcamp.collection import BandcampCollection
+from salmon.bandcamp.db import (
     get_all_collection_items,
     get_items_needing_check,
     get_known_urls,
     get_tracker_statuses,
     insert_collection_item,
 )
-from salmon.sources.bandcamp_display import (
-    _parse_selection,
+from salmon.bandcamp.display import (
     display_collection,
+    normalize_str,
+    parse_selection,
     select_items,
     verify_item_results,
 )
-from salmon.sources.bandcamp_downloader import download_and_extract
-from salmon.sources.bandcamp_types import CollectionItem
+from salmon.bandcamp.downloader import download_and_extract
+from salmon.bandcamp.types import CollectionItem
+from salmon.common import commandgroup
 
 
 def _scrape_and_insert(bc, items, delay=None):
-    """Scrape metadata for items and insert each into the DB immediately."""
+    """Scrape metadata for items and insert each into the DB immediately.
 
+    Returns the number of successfully inserted items. Logs per-item
+    failures without aborting the entire import.
+    """
     async def _run():
-        count = 0
+        inserted = 0
+        failed = 0
         async for item in bc.scrape_and_yield(items):
-            insert_collection_item(item)
-            count += 1
-            await asyncio.sleep(delay)
-        return count
+            try:
+                insert_collection_item(item)
+                inserted += 1
+            except Exception as e:
+                failed += 1
+                click.secho(
+                    f"  DB insert failed for {item.get('artist', '?')} - {item.get('title', '?')}: {e}",
+                    fg="red",
+                )
+            if delay:
+                await asyncio.sleep(delay)
+        if failed:
+            click.secho(f"  {failed} item(s) failed to insert.", fg="yellow")
+        return inserted
 
     return asyncio.run(_run())
 
@@ -108,29 +123,34 @@ def import_collection(delay):
 @click.option(
     "--tracker",
     "-t",
+    type=click.Choice(salmon.trackers.tracker_list, case_sensitive=False),
     default=None,
     help="Only check against this tracker (default: all configured)",
 )
 @click.option(
-    "--recheck-days",
-    "-d",
-    default=7,
-    help="Re-check 'found' items older than N days (default: 7)",
+    "--recheck",
+    "-r",
+    multiple=True,
+    type=click.Choice(["not-found", "found", "false-positive", "verified", "all"], case_sensitive=False),
+    help="Force re-check items with these statuses regardless of age",
 )
-def match(tracker, recheck_days):
+def match(tracker, recheck):
     """Match cached collection items against trackers."""
     all_trackers = salmon.trackers.tracker_list
     if not all_trackers:
         click.secho("No trackers configured.", fg="red")
         raise click.Abort()
 
-    if tracker:
-        if tracker not in all_trackers:
-            click.secho(f"Unknown tracker '{tracker}'. Available: {', '.join(all_trackers)}", fg="red")
-            raise click.Abort()
-        tracker_list = [tracker]
-    else:
-        tracker_list = all_trackers
+    tracker_list = [tracker] if tracker else all_trackers
+
+    # Build force_recheck set from --recheck flags
+    force_recheck: set[str] | None = None
+    if recheck:
+        raw = {r.lower() for r in recheck}
+        if "all" in raw:
+            force_recheck = {"not_found", "found", "false_positive", "verified"}
+        else:
+            force_recheck = {r.replace("-", "_") for r in raw}
 
     all_items = get_all_collection_items()
     if not all_items:
@@ -140,7 +160,13 @@ def match(tracker, recheck_days):
     # Build per-tracker lists of items needing check
     items_by_tracker: dict[str, list[CollectionItem]] = {}
     for tracker_code in tracker_list:
-        needs_check = get_items_needing_check(tracker_code, recheck_days)
+        needs_check = get_items_needing_check(
+            tracker_code,
+            recheck_not_found_days=cfg.bandcamp.recheck_not_found_days,
+            recheck_false_positive_days=cfg.bandcamp.recheck_false_positive_days,
+            recheck_found_days=cfg.bandcamp.recheck_found_days,
+            force_recheck=force_recheck,
+        )
         if needs_check:
             items_by_tracker[tracker_code] = needs_check
 
@@ -161,6 +187,7 @@ def match(tracker, recheck_days):
 @click.option(
     "--tracker",
     "-t",
+    type=click.Choice(salmon.trackers.tracker_list, case_sensitive=False),
     default=None,
     help="Only show results for this tracker",
 )
@@ -171,13 +198,7 @@ def inspect(tracker):
         click.secho("No trackers configured.", fg="red")
         raise click.Abort()
 
-    if tracker:
-        if tracker not in all_trackers:
-            click.secho(f"Unknown tracker '{tracker}'. Available: {', '.join(all_trackers)}", fg="red")
-            raise click.Abort()
-        tracker_list = [tracker]
-    else:
-        tracker_list = all_trackers
+    tracker_list = [tracker] if tracker else all_trackers
 
     all_items = get_all_collection_items()
     if not all_items:
@@ -186,11 +207,15 @@ def inspect(tracker):
 
     tracker_statuses = get_tracker_statuses()
 
-    # Filter to items that have at least one "found" result on the selected trackers
+    # Filter to items that have results to inspect (found or false_positive with results)
+    inspectable = {"found", "false_positive"}
     found_items = []
     for item in all_items:
         statuses = tracker_statuses.get(item["id"], {})
-        if any(statuses.get(t, {}).get("status") == "found" for t in tracker_list):
+        if any(
+            statuses.get(t, {}).get("status") in inspectable and statuses.get(t, {}).get("results")
+            for t in tracker_list
+        ):
             found_items.append(item)
 
     if not found_items:
@@ -208,7 +233,7 @@ def inspect(tracker):
         if sel.startswith("q"):
             return
 
-        indices = list(range(len(found_items))) if sel == "*" else _parse_selection(selection, len(found_items))
+        indices = list(range(len(found_items))) if sel == "*" else parse_selection(selection, len(found_items))
 
         if indices is None:
             click.secho("Invalid selection.", fg="red")
@@ -266,14 +291,17 @@ def bandcamp_up(
 ):
     """Upload collection items to trackers."""
     tracker_list = salmon.trackers.tracker_list or []
+    if not tracker_list:
+        click.secho("No trackers configured.", fg="red")
+        raise click.Abort()
+
     all_items = get_all_collection_items()
     if not all_items:
         click.secho("No items in collection cache. Run 'bandcamp import' first.", fg="red")
         return
 
-    if tracker_list:
-        tracker_statuses = get_tracker_statuses()
-        display_collection(all_items, tracker_statuses, tracker_list)
+    tracker_statuses = get_tracker_statuses()
+    display_collection(all_items, tracker_statuses, tracker_list)
 
     selections = select_items(all_items, tracker_list)
     if not selections:
@@ -287,59 +315,77 @@ def bandcamp_up(
     bc.bc.load_purchases()
     bc_purchases = bc.bc.purchases
 
-    for item, tracker in selections:
-        bc_item = None
-        for p in bc_purchases:
-            if p.item_id == item.get("bandcamp_item_id"):
-                bc_item = p
-                break
-            if p.band_name == item["artist"] and p.item_title == item["title"]:
-                bc_item = p
-                break
+    from salmon.uploader import upload
+    from salmon.uploader.preassumptions import print_preassumptions
 
-        if not bc_item:
+    if yyy:
+        cfg.upload.yes_all = True
+
+    for item, tracker_code in selections:
+        try:
+            bc_item = None
+            for p in bc_purchases:
+                if p.item_id == item.get("bandcamp_item_id"):
+                    bc_item = p
+                    break
+                if (
+                    normalize_str(p.band_name) == normalize_str(item["artist"])
+                    and normalize_str(p.item_title) == normalize_str(item["title"])
+                ):
+                    bc_item = p
+                    break
+
+            if not bc_item:
+                click.secho(
+                    f"Skipping {item['artist']} — {item['title']} (could not find in purchases)",
+                    fg="red",
+                )
+                continue
+
+            extract_dir = download_and_extract(bc, bc_item)
+            if not extract_dir:
+                click.secho(
+                    f"Skipping {item['artist']} — {item['title']} (download failed)",
+                    fg="red",
+                )
+                continue
+
             click.secho(
-                f"Skipping {item['artist']} — {item['title']} (could not find in purchases)",
+                f"\nLaunching upload for: {item['artist']} — {item['title']} → {tracker_code}",
+                fg="cyan",
+                bold=True,
+            )
+
+            gazelle_site = salmon.trackers.get_class(tracker_code)()
+            request_id = salmon.trackers.validate_request(gazelle_site, request) if request else None
+            source_url = (item.get("bandcamp_url") or "").strip() or None
+
+            print_preassumptions(
+                gazelle_site, extract_dir, group_id, "WEB", lossy,
+                spectrals, encoding, spectrals_after,
+            )
+            upload(
+                gazelle_site,
+                extract_dir,
+                group_id,
+                "WEB",
+                lossy,
+                spectrals,
+                encoding,
+                source_url=source_url,
+                scene=scene,
+                overwrite_meta=overwrite,
+                recompress=compress,
+                request_id=request_id,
+                spectrals_after=spectrals_after,
+                auto_rename=auto_rename,
+                skip_up=skip_up,
+                skip_mqa=skip_mqa,
+                skip_log_check=skip_log_check,
+                skip_integrity_check=skip_integrity_check,
+            )
+        except Exception as e:
+            click.secho(
+                f"\nUpload failed for {item['artist']} — {item['title']}: {e}",
                 fg="red",
             )
-            continue
-
-        extract_dir = download_and_extract(bc, bc_item)
-        if not extract_dir:
-            click.secho(
-                f"Skipping {item['artist']} — {item['title']} (download failed)",
-                fg="red",
-            )
-            continue
-
-        click.secho(
-            f"\nLaunching upload for: {item['artist']} — {item['title']} → {tracker}",
-            fg="cyan",
-            bold=True,
-        )
-
-        from salmon.uploader import up
-
-        ctx = click.Context(up, info_name="up")
-        ctx.invoke(
-            up,
-            path=extract_dir,
-            group_id=group_id,
-            source="WEB",
-            lossy=lossy,
-            spectrals=spectrals,
-            overwrite=overwrite,
-            encoding=encoding,
-            compress=compress,
-            tracker=tracker,
-            request=request,
-            spectrals_after=spectrals_after,
-            auto_rename=auto_rename,
-            skip_up=skip_up,
-            scene=scene,
-            source_url=item.get("bandcamp_url") or None,
-            yyy=yyy,
-            skip_mqa=skip_mqa,
-            skip_log_check=skip_log_check,
-            skip_integrity_check=skip_integrity_check,
-        )
