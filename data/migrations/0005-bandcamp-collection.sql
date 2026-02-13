@@ -25,7 +25,10 @@ CREATE TABLE IF NOT EXISTS bandcamp_collection_tracker_status (
     status TEXT NOT NULL DEFAULT 'unknown',
     results TEXT NOT NULL DEFAULT '{}',
     group_id INTEGER,
-    checked_at TEXT NOT NULL,
+    matched_at TEXT NOT NULL,
+    inspected_at TEXT,
+    results_changed_at TEXT,
+    uploaded_at TEXT,
     PRIMARY KEY (collection_id, tracker),
     FOREIGN KEY (collection_id) REFERENCES bandcamp_collection(id)
 );

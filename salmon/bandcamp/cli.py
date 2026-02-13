@@ -12,6 +12,7 @@ from salmon.bandcamp.checker import check_items_on_trackers
 from salmon.bandcamp.collection import BandcampCollection
 from salmon.bandcamp.db import (
     get_all_collection_items,
+    get_inspectable_items,
     get_items_needing_check,
     get_known_item_ids,
     get_known_urls,
@@ -30,6 +31,7 @@ from salmon.bandcamp.downloader import download_and_extract
 from salmon.bandcamp.types import CollectionItem
 from salmon.common import commandgroup
 from salmon.constants import TAG_ENCODINGS
+from salmon.uploader import print_preassumptions, upload
 
 
 def _scrape_and_insert(bc, items, delay=None):
@@ -219,7 +221,11 @@ def match(tracker, recheck):
     help="Only show results for this tracker",
 )
 def inspect(tracker):
-    """Review and verify tracker match results."""
+    """Review and verify tracker match results.
+
+    Shows only items needing attention: new matches that haven't been
+    inspected, or items whose results changed since last inspection.
+    """
     all_trackers = salmon.trackers.tracker_list or []
     if not all_trackers:
         click.secho("No trackers configured.", fg="red")
@@ -227,51 +233,34 @@ def inspect(tracker):
 
     tracker_list = [tracker] if tracker else all_trackers
 
-    all_items = get_all_collection_items()
-    if not all_items:
-        click.secho("No items in collection cache. Run 'bandcamp import' first.", fg="red")
+    found_items = get_inspectable_items(tracker_list)
+    if not found_items:
+        click.secho("No items need inspection.", fg="green")
         return
 
     tracker_statuses = get_tracker_statuses()
-
-    # Filter to items that have results to inspect (found or false_positive with results)
-    inspectable = {"found", "false_positive"}
-    found_items = []
-    for item in all_items:
-        statuses = tracker_statuses.get(item["id"], {})
-        if any(
-            statuses.get(t, {}).get("status") in inspectable and statuses.get(t, {}).get("results")
-            for t in tracker_list
-        ):
-            found_items.append(item)
-
-    if not found_items:
-        click.secho("No items with tracker matches found.", fg="yellow")
-        return
-
     display_collection(found_items, tracker_statuses, tracker_list)
 
-    while True:
-        selection = click.prompt(
-            click.style("Select items to inspect (e.g. 3, 1-5, 2,4,6, * for all) or [q]uit", fg="magenta"),
-            default="q",
-        )
-        sel = selection.strip().lower()
-        if sel.startswith("q"):
-            return
+    selection = click.prompt(
+        click.style("Select items to inspect (e.g. 3, 1-5, 2,4,6, * for all) or [q]uit", fg="magenta"),
+        default="*",
+    )
+    sel = selection.strip().lower()
+    if sel.startswith("q"):
+        return
 
-        indices = list(range(len(found_items))) if sel == "*" else parse_selection(selection, len(found_items))
+    indices = list(range(len(found_items))) if sel == "*" else parse_selection(selection, len(found_items))
 
-        if indices is None:
-            click.secho("Invalid selection.", fg="red")
-            continue
+    if indices is None:
+        click.secho("Invalid selection.", fg="red")
+        return
 
-        for i, idx in enumerate(indices):
-            verify_item_results(found_items[idx], tracker_statuses, tracker_list)
-            if i < len(indices) - 1 and not click.confirm("\nNext?", default=True):
-                break
-        # Reload statuses after mutations (verify/FP marks)
+    for idx in indices:
+        verify_item_results(found_items[idx], tracker_statuses, tracker_list)
+        # Reload statuses after mutations
         tracker_statuses = get_tracker_statuses()
+
+    click.secho("\nDone inspecting.", fg="green")
 
 
 @bandcamp.command(name="up")
@@ -361,9 +350,6 @@ def bandcamp_up(
     click.secho("\nLoading purchases for download...", fg="cyan")
     bc.load_purchases()
     bc_purchases = bc.purchases
-
-    from salmon.uploader import upload
-    from salmon.uploader.preassumptions import print_preassumptions
 
     original_yes_all = cfg.upload.yes_all
     if yyy:

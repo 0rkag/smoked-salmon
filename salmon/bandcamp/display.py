@@ -95,15 +95,47 @@ def normalize_str(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
-def _strings_similar(a: str, b: str) -> bool:
-    """Check if two strings are similar after normalization."""
+def _similarity_ratio(a: str, b: str) -> float:
+    """Return similarity ratio (0.0-1.0) of two strings after normalization."""
+    from difflib import SequenceMatcher
+
     na, nb = normalize_str(a), normalize_str(b)
     if not na or not nb:
-        return False
+        return 0.0
     if na == nb:
-        return True
-    # One contains the other (handles subtitle differences)
-    return na in nb or nb in na
+        return 1.0
+    return SequenceMatcher(None, na, nb).ratio()
+
+
+def _strings_similar(a: str, b: str) -> bool:
+    """Check if two strings are similar after normalization."""
+    return _similarity_ratio(a, b) > 0.7
+
+
+def _color_for_similarity(a: str, b: str) -> str:
+    """Return click color based on string similarity: green/yellow/red."""
+    ratio = _similarity_ratio(a, b)
+    if ratio == 1.0:
+        return "green"
+    if ratio > 0.7:
+        return "yellow"
+    return "red"
+
+
+def _color_for_year(bc_year: str | None, result_year: int | None) -> str:
+    """Return click color for year comparison."""
+    if not bc_year or not result_year:
+        return "yellow"
+    return "green" if str(result_year) in bc_year else "yellow"
+
+
+def _color_for_tags(bc_genres: list[str], result_tags: list[str]) -> str:
+    """Return click color based on genre/tag overlap."""
+    if not bc_genres or not result_tags:
+        return "yellow"
+    bc_set = {g.lower() for g in bc_genres}
+    tag_set = {t.lower() for t in result_tags}
+    return "green" if bc_set & tag_set else "red"
 
 
 def _tag_overlap(tags_a: list[str] | None, tags_b: list[str] | None) -> float:
@@ -156,101 +188,129 @@ def _find_matching_result(verified_info: ResultInfo, results: dict[str, ResultIn
 
 
 def _display_item_header(item: CollectionItem) -> None:
-    """Display the Bandcamp item info header."""
-    click.secho(
-        f"\n{item['artist']} — {item['title']}",
-        fg="cyan",
-        bold=True,
-    )
+    """Display condensed Bandcamp item info header (2 lines)."""
+    # Line 1: [label] artist — title (year, track/album [N tracks])
+    parts = []
+    if item.get("label"):
+        parts.append(click.style(f"[{item['label']}]", fg="blue"))
 
-    details = []
-    if item.get("item_type"):
-        details.append(item["item_type"].capitalize())
+    year = ""
     if item.get("release_date"):
         year_match = re.search(r"(\d{4})", item["release_date"])
         if year_match:
-            details.append(year_match[1])
-    if item.get("label"):
-        details.append(item["label"])
-    if details:
-        click.echo(f"  {' · '.join(details)}")
+            year = year_match[1]
 
     track_count = item.get("track_count", 0)
-    if track_count > 0:
-        click.echo(f"  {track_count} track{'s' if track_count != 1 else ''}")
+    item_type = item.get("item_type", "album")
+    if item_type == "track" or track_count == 1:
+        type_info = "track"
+    elif track_count > 0:
+        type_info = f"album [{track_count} tracks]"
+    else:
+        type_info = item_type or "album"
 
+    meta = ", ".join(filter(None, [year, type_info]))
+    title_str = click.style(f"{item['artist']} — {item['title']}", fg="white", bold=True)
+    parts.append(f"{title_str} ({meta})")
+
+    click.echo("\n" + " ".join(parts))
+
+    # Line 2: [Genre1, Genre2, ...]
     genres = item.get("genres", [])
     if genres:
-        click.echo(f"  Genres: {', '.join(genres)}")
-
-    tags = item.get("tags", [])
-    if tags:
-        click.echo(f"  Tags: {', '.join(tags)}")
-
-    if item.get("barcode"):
-        click.echo(f"  Barcode: {item['barcode']}")
-
-    if item.get("bandcamp_url"):
-        click.echo(f"  {item['bandcamp_url']}")
+        click.echo(click.style(f"[{', '.join(genres)}]", fg="blue"))
 
 
 def _display_tracker_results(
+    item: CollectionItem,
     tracker: str,
     results: dict[str, ResultInfo],
     group_id: int | None = None,
     show_fp: bool = False,
-) -> tuple[list[str], int]:
-    """Display match results for a single tracker, numbering each match.
+    show_all: bool = False,
+    old_results: dict[str, ResultInfo] | None = None,
+) -> tuple[list[str], int, bool]:
+    """Display match results for a single tracker with color-coded differences.
 
-    Returns ``(gids_in_display_order, hidden_fp_count)``.  When *show_fp* is
-    False, false-positive results are hidden; when True they are appended at
-    the end with a dimmed ``[FP]`` marker.
+    Returns ``(gids_in_display_order, hidden_fp_count, was_truncated)``.
+    *was_truncated* is True when >5 results were hidden (needs ``[a]ll``).
+    *old_results* is used to determine which results are NEW (not in previous set).
     """
     non_fp = [(gid, info) for gid, info in results.items() if not info.get("false_positive")]
     fp = [(gid, info) for gid, info in results.items() if info.get("false_positive")]
+    hidden_fp = len(fp) if not show_fp else 0
+
+    # Pin verified result to top
+    if group_id is not None:
+        gid_str = str(group_id)
+        verified_item = [(gid, info) for gid, info in non_fp if gid == gid_str]
+        rest = [(gid, info) for gid, info in non_fp if gid != gid_str]
+        non_fp = verified_item + rest
 
     display_pairs = non_fp + (fp if show_fp else [])
     gids = [gid for gid, _ in display_pairs]
-    hidden_fp = len(fp) if not show_fp else 0
+
+    # Check if truncated (>5 non-FP and not showing all)
+    was_truncated = False
+    if len(non_fp) > 5 and not show_all:
+        click.secho(f"    {len(non_fp)} matches (too many to display, press [a] to show all)", fg="red")
+        return [], hidden_fp, True
+
+    # Determine which gids are new since last inspection
+    old_gids = set((old_results or {}).keys()) if old_results else set()
+
+    # Extract BC item fields for comparison
+    bc_year = ""
+    if item.get("release_date"):
+        year_match = re.search(r"(\d{4})", item["release_date"])
+        if year_match:
+            bc_year = year_match[1]
+    bc_genres = item.get("genres", [])
 
     for num, (gid, info) in enumerate(display_pairs, 1):
         artist = info.get("artist", "?")
         name = info.get("groupName", "?")
-        year = info.get("groupYear", "?")
+        year = info.get("groupYear")
         rtype = info.get("releaseType", "?")
+        is_fp = info.get("false_positive")
 
+        # Color-code based on similarity to BC item
+        artist_color = _color_for_similarity(item["artist"], artist)
+        title_color = _color_for_similarity(item["title"], name)
+        year_color = _color_for_year(bc_year, year)
+        tag_color = _color_for_tags(bc_genres, info.get("tags", []))
+
+        artist_styled = click.style(artist, fg=artist_color, dim=bool(is_fp))
+        title_styled = click.style(name, fg=title_color, bold=not is_fp, dim=bool(is_fp))
+        year_styled = click.style(str(year or "?"), fg=year_color)
+
+        # Markers
         markers = ""
         if group_id is not None and str(group_id) == str(gid):
             markers += click.style(" [verified]", fg="green")
-        if info.get("false_positive"):
+        if is_fp:
             markers += click.style(" [FP]", fg="bright_black")
+        if old_results is not None and gid not in old_gids and not is_fp:
+            markers += click.style(" NEW", fg="yellow", bold=True)
 
-        is_fp = info.get("false_positive")
-        label = click.style(f"{artist} — {name}", bold=not is_fp, dim=bool(is_fp))
+        # Tag indicator dot
+        tag_dot = click.style(" *", fg=tag_color) if info.get("tags") else ""
 
-        click.echo(f"    {num}) [{gid}] " + label + f" ({year}, {rtype})" + markers)
+        click.echo(
+            f"    {num}) [{gid}] {artist_styled} — {title_styled}"
+            f" ({year_styled}, {rtype}){tag_dot}{markers}"
+        )
 
+        # VA artist list (kept, no torrents)
         artists = info.get("artists", [])
         if artists and artist == "Various Artists":
             click.echo(f"           {', '.join(artists[:10])}" + ("..." if len(artists) > 10 else ""))
 
-        tags = info.get("tags", [])
-        if tags:
-            click.echo(f"           tags: {', '.join(tags)}")
+    if hidden_fp > 0:
+        fp_label = f"    ── {hidden_fp} FP result{'s' if hidden_fp != 1 else ''} hidden [h to show] ──"
+        click.echo(click.style(fp_label, fg="red"))
 
-        for t in info.get("torrents", []):
-            fmt = t.get("format", "?")
-            enc = t.get("encoding", "?")
-            media = t.get("media", "?")
-            seeders = t.get("seeders", 0)
-            snatches = t.get("snatches", 0)
-            seed_color = "green" if seeders > 0 else "red"
-            click.echo(
-                f"           {fmt} / {enc} / {media}"
-                f"  — " + click.style(f"{seeders}s", fg=seed_color) + f" / {snatches}sn"
-            )
-
-    return gids, hidden_fp
+    return gids, hidden_fp, was_truncated
 
 
 def display_item_results(
@@ -275,17 +335,19 @@ def display_item_results(
             "false_positive": "red",
         }
         color = status_colors.get(status, "yellow")
+        non_fp_count = sum(1 for r in results.values() if not r.get("false_positive"))
         if status in ("found", "verified") and results:
-            label = f"{len(results)} match(es)"
+            label = f"{non_fp_count} match(es)"
         elif status == "false_positive" and results:
-            label = f"false_positive ({len(results)} FP result{'s' if len(results) != 1 else ''})"
+            fp_count = sum(1 for r in results.values() if r.get("false_positive"))
+            label = f"false_positive ({fp_count} FP result{'s' if fp_count != 1 else ''})"
         else:
             label = status
 
         click.echo(f"\n  {tracker}: " + click.style(label, fg=color))
 
         if results:
-            _display_tracker_results(tracker, results, group_id, show_fp=True)
+            _display_tracker_results(item, tracker, results, group_id, show_fp=True)
 
 
 def verify_item_results(
@@ -293,17 +355,18 @@ def verify_item_results(
     tracker_statuses: dict[int, dict[str, TrackerStatus]],
     tracker_list: list[str],
 ) -> None:
-    """Display results per tracker and prompt user to verify, mark false positive, or skip.
+    """Display results per tracker and prompt user to verify, mark FP, or skip.
 
-    When a match is verified on one tracker, subsequent trackers with a similar
-    result will have that match preselected as the default.
+    Handles previously-matched items:
+    - Verified with lost group: prominent warning
+    - Verified with changes: verified pinned to top, NEW badges
+    - FP with new results: new results shown first
     """
     from salmon.bandcamp.db import mark_false_positive, verify_tracker_match
 
     statuses = tracker_statuses.get(item["id"], {})
     _display_item_header(item)
 
-    # Track the verified result info to suggest matches on other trackers
     verified_info = None
 
     for tracker in tracker_list:
@@ -311,51 +374,103 @@ def verify_item_results(
         status = ts.get("status", "unknown")
         results = ts.get("results", {})
         group_id = ts.get("group_id")
+        inspected_at = ts.get("inspected_at")
+        results_changed_at = ts.get("results_changed_at")
 
+        # Determine if this is a re-review (results changed since last inspection)
+        is_rereview = (
+            inspected_at is not None
+            and results_changed_at is not None
+            and results_changed_at > inspected_at
+        )
+
+        # Handle verified status
         if status == "verified":
-            click.echo(f"\n  {tracker}: " + click.style("already verified", fg="green"))
-            _display_tracker_results(tracker, results, group_id)
-            # Use existing verified result as reference for other trackers
-            if verified_info is None and group_id and str(group_id) in results:
-                verified_info = results[str(group_id)]
-            continue
+            if is_rereview:
+                gid_str = str(group_id) if group_id else None
+                if gid_str and gid_str not in results:
+                    # Verified result disappeared!
+                    click.echo(f"\n  {tracker}: " + click.style("RESULTS CHANGED", fg="yellow", bold=True))
+                    click.secho(
+                        f"    ⚠ Verified match [{gid_str}] no longer found!",
+                        fg="red",
+                        bold=True,
+                    )
+                else:
+                    click.echo(
+                        f"\n  {tracker}: "
+                        + click.style("RESULTS CHANGED", fg="yellow", bold=True)
+                    )
+                # Capture verified_info for subsequent trackers
+                if verified_info is None and group_id and str(group_id) in results:
+                    verified_info = results[str(group_id)]
+                # Fall through to interactive prompt below
+            else:
+                click.echo(f"\n  {tracker}: " + click.style("already verified", fg="green"))
+                _display_tracker_results(item, tracker, results, group_id)
+                if verified_info is None and group_id and str(group_id) in results:
+                    verified_info = results[str(group_id)]
+                continue
 
-        if status not in ("found", "false_positive") or not results:
+        # Handle not_found / unknown
+        if status not in ("found", "false_positive", "verified") or not results:
             status_colors = {"not_found": "red"}
             color = status_colors.get(status, "yellow")
             click.echo(f"\n  {tracker}: " + click.style(status, fg=color))
             continue
 
+        # Interactive prompt for found / false_positive / verified-rereview
         show_fp = False
+        show_all = False
         while True:
-            # (Re-)display results with current FP visibility
             non_fp_count = sum(1 for r in results.values() if not r.get("false_positive"))
             fp_count = sum(1 for r in results.values() if r.get("false_positive"))
 
-            if status == "false_positive":
+            if status == "false_positive" and not is_rereview:
                 click.echo(
                     f"\n  {tracker}: "
                     + click.style(f"false_positive ({fp_count} FP result{'s' if fp_count != 1 else ''})", fg="red")
                 )
-            else:
+                break
+
+            if status == "false_positive" and is_rereview:
+                new_count = sum(1 for r in results.values() if not r.get("false_positive"))
+                click.echo(
+                    f"\n  {tracker}: "
+                    + click.style(f"{new_count} new result(s) since last inspection", fg="bright_red", bold=True)
+                )
+            elif not is_rereview:
                 click.echo(f"\n  {tracker}: " + click.style(f"{non_fp_count} match(es)", fg="green"))
 
-            gids, hidden_fp = _display_tracker_results(tracker, results, show_fp=show_fp)
+            gids, hidden_fp, was_truncated = _display_tracker_results(
+                item, tracker, results, group_id,
+                show_fp=show_fp, show_all=show_all,
+            )
 
-            # Check if a previous verification suggests a match here
+            # Suggest match: prefer this tracker's verified result, then fuzzy-match from prior
             suggested_num = None
-            if verified_info:
+            gid_str = str(group_id) if group_id else None
+            if status == "false_positive" and is_rereview:
+                suggested_num = "f"
+            elif gid_str and gid_str in gids:
+                suggested_num = gids.index(gid_str) + 1
+            elif verified_info and gids:
                 suggested_gid = _find_matching_result(verified_info, results)
                 if suggested_gid and suggested_gid in gids:
                     suggested_num = gids.index(suggested_gid) + 1
 
+            # Build prompt
             prompt_parts = []
-            if len(gids) == 1:
-                prompt_parts.append("1 to confirm")
-            elif len(gids) > 1:
-                prompt_parts.append(f"1-{len(gids)} to confirm")
+            if gids:
+                if len(gids) == 1:
+                    prompt_parts.append("1 to confirm")
+                else:
+                    prompt_parts.append(f"1-{len(gids)} to confirm")
             prompt_parts.append("[f]alse positive")
             prompt_parts.append("[s]kip")
+            prompt_parts.append("[u]rl")
+            if was_truncated:
+                prompt_parts.append("[a]ll results")
             if hidden_fp > 0:
                 prompt_parts.append(f"[h]idden ({hidden_fp})")
             elif show_fp and fp_count > 0:
@@ -374,6 +489,13 @@ def verify_item_results(
 
             if choice == "s":
                 break
+            if choice == "u":
+                url = item.get("bandcamp_url", "")
+                click.echo(f"    {url}" if url else "    No URL available")
+                continue
+            if choice == "a":
+                show_all = True
+                continue
             if choice == "h":
                 show_fp = not show_fp
                 continue
@@ -387,7 +509,6 @@ def verify_item_results(
                     gid_str = gids[num - 1]
                     verify_tracker_match(item["id"], tracker, int(gid_str))
                     click.secho(f"    Verified match [{gid_str}] on {tracker}.", fg="green")
-                    # Use this as reference for remaining trackers
                     if verified_info is None:
                         verified_info = results[gid_str]
                     break

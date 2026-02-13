@@ -75,4 +75,7 @@ class TrackerStatus(TypedDict):
     status: CheckStatus
     results: dict[str, ResultInfo]
     group_id: int | None
-    checked_at: str
+    matched_at: str
+    inspected_at: str | None
+    results_changed_at: str | None
+    uploaded_at: str | None

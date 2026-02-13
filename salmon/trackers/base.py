@@ -277,9 +277,13 @@ class BaseGazelleApi:
 
     def get_uploads_from_log(self, max_pages=10):
         "Crawls some pages of the log and returns uploads"
+
+        async def _fetch_all():
+            tasks = [self.fetch_log(i) for i in range(1, max_pages)]
+            return await asyncio.gather(*tasks)
+
         recent_uploads = []
-        tasks = [self.fetch_log(i) for i in range(1, max_pages)]
-        for page in asyncio.run(asyncio.gather(*tasks)):
+        for page in asyncio.run(_fetch_all()):
             recent_uploads += self.parse_uploads_from_log_html(page.text)
         return recent_uploads
 

@@ -8,6 +8,7 @@ import shutil
 from typing import TYPE_CHECKING
 
 import click
+from bandcampsync.bandcamp import BandcampItem
 from bandcampsync.download import download_file, is_zip_file, unzip_file
 
 from salmon import cfg
@@ -29,12 +30,12 @@ _FORMAT_EXTENSIONS = {
 }
 
 
-def download_and_extract(bc: BandcampCollection, bandcampsync_item, dest_base_dir: str | None = None) -> str | None:
+def download_and_extract(bc: BandcampCollection, bc_item: BandcampItem, dest_base_dir: str | None = None) -> str | None:
     """Download a Bandcamp purchase and extract it.
 
     Args:
         bc: BandcampCollection instance with auth
-        bandcampsync_item: The original bandcampsync BandcampItem object
+        bc_item: The original bandcampsync BandcampItem object
         dest_base_dir: Base directory for extraction. Falls back to
                        cfg.directory.tmp_dir or cfg.directory.download_directory.
 
@@ -44,13 +45,13 @@ def download_and_extract(bc: BandcampCollection, bandcampsync_item, dest_base_di
     if dest_base_dir is None:
         dest_base_dir = cfg.directory.tmp_dir or cfg.directory.download_directory
 
-    artist = bandcampsync_item.band_name
-    title = bandcampsync_item.item_title
+    artist = bc_item.band_name
+    title = bc_item.item_title
     click.secho(f"\nDownloading: {artist} — {title}", fg="cyan", bold=True)
 
     # Get download URL via bandcampsync
     download_format = cfg.bandcamp.download_format
-    download_url = bc.get_download_url(bandcampsync_item, encoding=download_format)
+    download_url = bc.get_download_url(bc_item, encoding=download_format)
     if not download_url:
         click.secho("  Could not find download URL. Item may be streaming-only.", fg="red")
         return None
@@ -61,11 +62,11 @@ def download_and_extract(bc: BandcampCollection, bandcampsync_item, dest_base_di
 
     extract_dir = os.path.join(
         dest_base_dir,
-        _sanitize_dirname(f"{artist} - {title} [{bandcampsync_item.item_id}]"),
+        _sanitize_dirname(f"{artist} - {title} [{bc_item.item_id}]"),
     )
 
     # Download using bandcampsync's download_file (expects an open file handle)
-    tmp_file = os.path.join(tmp_dir, f"{bandcampsync_item.item_id}.download")
+    tmp_file = os.path.join(tmp_dir, f"{bc_item.item_id}.download")
     try:
         with open(tmp_file, "wb") as fh:
             download_file(download_url, fh)

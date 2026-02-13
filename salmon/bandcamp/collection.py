@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator, Iterator
 
 import click
 import httpx
-from bandcampsync.bandcamp import Bandcamp
+from bandcampsync.bandcamp import Bandcamp, BandcampItem
 
 from salmon.bandcamp.types import AlbumMetadata, CollectionItem
 from salmon.errors import ScrapeError
@@ -69,31 +69,31 @@ class BandcampCollection:
                 continue
             yield parsed
 
-    def _parse_bandcampsync_item(self, item) -> CollectionItem | None:
+    def _parse_bandcampsync_item(self, bc_item: BandcampItem) -> CollectionItem | None:
         """Parse a bandcampsync BandcampItem into our format."""
-        if not item.download_available:
-            click.echo(f"  Skipping {item.band_name} - {item.item_title} (no download available)")
+        if not bc_item.download_available:
+            click.echo(f"  Skipping {bc_item.band_name} - {bc_item.item_title} (no download available)")
             return None
 
         # tralbum_type is the reliable field: 'a' = album, 't' = track
-        item_type = "album" if item.tralbum_type == "a" else "track"
+        item_type = "album" if bc_item.tralbum_type == "a" else "track"
 
-        bandcamp_url = self._extract_url_from_item(item)
+        bandcamp_url = self._extract_url_from_item(bc_item)
         if not bandcamp_url:
-            click.echo(f"  Skipping {item.band_name} - {item.item_title} (no URL found)")
+            click.echo(f"  Skipping {bc_item.band_name} - {bc_item.item_title} (no URL found)")
             return None
 
         return CollectionItem(
             bandcamp_url=bandcamp_url,
-            bandcamp_item_id=item.item_id,
-            artist=item.band_name,
-            title=item.item_title,
+            bandcamp_item_id=bc_item.item_id,
+            artist=bc_item.band_name,
+            title=bc_item.item_title,
             item_type=item_type,
-            purchase_date=item.purchased or "",
-            cover_url=item.item_art_url,
+            purchase_date=bc_item.purchased or "",
+            cover_url=bc_item.item_art_url,
         )
 
-    def _extract_url_from_item(self, item) -> str | None:
+    def _extract_url_from_item(self, bc_item: BandcampItem) -> str | None:
         """Extract the Bandcamp album/track page URL from a BandcampItem.
 
         BandcampItem uses __getattr__ on raw API data, so item_url should
@@ -102,7 +102,7 @@ class BandcampCollection:
         """
         # Try the direct item_url field from the raw API response
         try:
-            url = item.item_url
+            url = bc_item.item_url
             if url:
                 return url
         except (AttributeError, KeyError):
@@ -110,13 +110,13 @@ class BandcampCollection:
 
         # Fallback: construct from url_hints slug
         try:
-            hints = item.url_hints
+            hints = bc_item.url_hints
             if hints and isinstance(hints, dict):
                 slug = hints.get("slug")
                 custom_domain = hints.get("custom_domain")
                 subdomain = hints.get("subdomain")
                 if slug:
-                    item_type = "album" if item.tralbum_type == "a" else "track"
+                    item_type = "album" if bc_item.tralbum_type == "a" else "track"
                     if custom_domain:
                         return f"https://{custom_domain}/{item_type}/{slug}"
                     if subdomain:
@@ -125,25 +125,25 @@ class BandcampCollection:
             pass
 
         click.secho(
-            f"  Warning: could not extract URL for {item.band_name} - {item.item_title} (item_id={item.item_id})",
+            f"  Warning: could not extract URL for {bc_item.band_name} - {bc_item.item_title} (item_id={bc_item.item_id})",
             fg="yellow",
         )
         return None
 
-    def get_download_url(self, item_ref, encoding: str = "flac") -> str | None:
+    def get_download_url(self, bc_item: BandcampItem, encoding: str = "flac") -> str | None:
         """Get the download URL for a purchased item using bandcampsync.
 
         Args:
-            item_ref: A bandcampsync BandcampItem object
+            bc_item: A bandcampsync BandcampItem object
             encoding: Download format (default: "flac")
 
         Returns:
             Download URL string, or None if unavailable.
         """
         try:
-            url = self.bc.get_download_file_url(item_ref, encoding=encoding)
+            url = self.bc.get_download_file_url(bc_item, encoding=encoding)
             if url:
-                checked = self.bc.check_download_stat(item_ref, url)
+                checked = self.bc.check_download_stat(bc_item, url)
                 if checked:
                     return checked
                 return url

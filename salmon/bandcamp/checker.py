@@ -134,19 +134,19 @@ def check_items_on_trackers(items_by_tracker: dict[str, list[CollectionItem]]) -
 def _merge_fp_results(
     old_results: dict[str, ResultInfo],
     new_results: dict[str, ResultInfo],
-) -> tuple[str, dict[str, ResultInfo]]:
+) -> tuple[bool, dict[str, ResultInfo]]:
     """Merge new search results with previously-FP'd results.
 
     Old group IDs are kept with ``false_positive: True`` (torrent data updated
     from the new search if available).  New group IDs not in old get
-    ``false_positive: False``.  Returns ``("found", merged)`` if any non-FP
-    result exists, otherwise ``("false_positive", merged)``.
+    ``false_positive: False``.
+
+    Returns ``(has_new_results, merged)`` where *has_new_results* is True
+    if genuinely new (non-FP) results were found.
     """
     old_gids = set(old_results)
     merged: dict[str, ResultInfo] = {}
 
-    # Carry forward old FP results (update torrent data if re-found,
-    # clear stale torrents if the group is no longer in search results)
     for gid, info in old_results.items():
         merged[gid] = ResultInfo(
             groupName=info.get("groupName"),
@@ -159,7 +159,6 @@ def _merge_fp_results(
             false_positive=True,
         )
 
-    # Add genuinely new results
     for gid, info in new_results.items():
         if gid not in old_gids:
             merged[gid] = ResultInfo(
@@ -173,8 +172,8 @@ def _merge_fp_results(
                 false_positive=False,
             )
 
-    has_non_fp = any(not r.get("false_positive") for r in merged.values())
-    return ("found" if has_non_fp else "false_positive"), merged
+    has_new = any(not r.get("false_positive") for r in merged.values())
+    return has_new, merged
 
 
 def _check_all_items(tracker_code: str, gazelle_site, items: list[CollectionItem]) -> None:
@@ -199,25 +198,56 @@ def _check_all_items_with_loop(
         click.echo(f"    {tracker_code} [{i + 1}/{len(items)}] {item['artist']} - {item['title']}")
         try:
             status, results = check_item_on_tracker(gazelle_site, item, loop)
-
-            # Merge with existing FP results if the item was previously false_positive
-            # and there are new search results to merge with. If no results at all,
-            # the item goes to not_found (the old FP groups are no longer matching).
             existing = get_item_tracker_status(item["id"], tracker_code)
-            if existing and existing["status"] == "false_positive" and existing["results"] and results:
-                status, results = _merge_fp_results(existing["results"], results)
 
-            upsert_tracker_status(item["id"], tracker_code, status, results)
-            if status == "found":
+            results_changed = False
+
+            if existing is None:
+                # First check ever — results_changed if we found something
+                results_changed = bool(results)
+            elif existing["status"] in ("verified", "false_positive"):
+                # User-set status: never change it, only detect result changes
+                if existing["status"] == "false_positive" and existing["results"] and results:
+                    has_new, results = _merge_fp_results(existing["results"], results)
+                    results_changed = has_new
+                elif existing["status"] == "verified":
+                    old_gids = set(existing["results"].keys())
+                    new_gids = set(results.keys())
+                    verified_gid = str(existing["group_id"]) if existing["group_id"] else None
+                    if (verified_gid and verified_gid not in new_gids) or old_gids != new_gids:
+                        results_changed = True
+                # Preserve the user-set status
+                status = existing["status"]
+            else:
+                # System status (found/not_found): auto-transition allowed
+                if existing["status"] == "not_found" and status == "found":
+                    results_changed = True
+                elif existing["status"] == "found" and results:
+                    old_gids = set(existing["results"].keys())
+                    new_gids = set(results.keys())
+                    if old_gids != new_gids:
+                        results_changed = True
+
+            upsert_tracker_status(
+                item["id"], tracker_code, status, results,
+                results_changed=results_changed,
+            )
+
+            if results_changed and existing:
+                click.echo(
+                    f"      {tracker_code}: "
+                    + click.style("results changed", fg="yellow")
+                )
+            elif status == "found":
                 n = sum(1 for r in results.values() if not r.get("false_positive"))
                 click.echo(
                     f"      {tracker_code}: "
-                    + click.style(f"found ({n} new match{'es' if n != 1 else ''})", fg="green")
+                    + click.style(f"found ({n} match{'es' if n != 1 else ''})", fg="green")
                 )
-            elif status == "false_positive":
+            elif status in ("verified", "false_positive"):
                 click.echo(
                     f"      {tracker_code}: "
-                    + click.style("rechecked, still only FP matches", fg="yellow")
+                    + click.style(f"rechecked ({status})", fg="yellow")
                 )
             else:
                 click.echo(f"      {tracker_code}: " + click.style("not found", fg="red"))
