@@ -73,7 +73,11 @@ def descgen(urls):
     if not urls:
         return click.secho("You must specify at least one URL", fg="red")
     tasks = [run_metadata(url, return_source_name=True) for url in urls]
-    metadatas = asyncio.run(asyncio.gather(*tasks))
+
+    async def _run():
+        return await asyncio.gather(*tasks)
+
+    metadatas = asyncio.run(_run())
     metadata = clean_metadata(combine_metadatas(*((s, m) for m, s in metadatas)))
     remove_various_artists(metadata["tracks"])
 

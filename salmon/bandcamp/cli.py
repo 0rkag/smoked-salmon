@@ -3,6 +3,7 @@
 import asyncio
 import os
 import shutil
+from concurrent.futures import ThreadPoolExecutor
 
 import click
 
@@ -40,6 +41,7 @@ def _scrape_and_insert(bc, items, delay=None):
     Returns the number of successfully inserted items. Logs per-item
     failures without aborting the entire import.
     """
+
     async def _run():
         inserted = 0
         failed = 0
@@ -358,18 +360,48 @@ def bandcamp_up(
     # Cache tracker sessions to avoid re-authenticating per item
     tracker_sessions: dict[str, object] = {}
 
-    try:
-        for item, tracker_code in selections:
-            try:
-                bc_item = _find_purchase(bc_purchases, item)
-                if not bc_item:
-                    click.secho(
-                        f"Skipping {item['artist']} — {item['title']} (could not find in purchases)",
-                        fg="red",
-                    )
-                    continue
+    # Resolve all purchases and download URLs upfront so we can pipeline
+    # downloads in a background thread without sharing the bc object.
+    resolved = []
+    for item, tracker_code in selections:
+        bc_item = _find_purchase(bc_purchases, item)
+        if not bc_item:
+            click.secho(
+                f"Skipping {item['artist']} — {item['title']} (could not find in purchases)",
+                fg="red",
+            )
+            continue
+        download_url = bc.get_download_url(bc_item, encoding=cfg.bandcamp.download_format)
+        if not download_url:
+            click.secho(
+                f"Skipping {item['artist']} — {item['title']} (could not resolve download URL)",
+                fg="red",
+            )
+            continue
+        resolved.append((item, tracker_code, bc_item, download_url))
 
-                extract_dir = download_and_extract(bc, bc_item)
+    if not resolved:
+        click.secho("No items to upload.", fg="green")
+        return
+
+    try:
+        with ThreadPoolExecutor(max_workers=1) as dl_pool:
+            # Start first download immediately
+            next_dl = dl_pool.submit(download_and_extract, None, resolved[0][2], download_url=resolved[0][3])
+
+            for i, (item, tracker_code, _bc_item, _dl_url) in enumerate(resolved):
+                # Wait for this item's download
+                extract_dir = next_dl.result()
+
+                # Start next download in background while we upload
+                if i + 1 < len(resolved):
+                    next_dl = dl_pool.submit(
+                        download_and_extract,
+                        None,
+                        resolved[i + 1][2],
+                        download_url=resolved[i + 1][3],
+                    )
+
                 if not extract_dir:
                     click.secho(
                         f"Skipping {item['artist']} — {item['title']} (download failed)",
@@ -392,8 +424,14 @@ def bandcamp_up(
                     source_url = (item.get("bandcamp_url") or "").strip() or None
 
                     print_preassumptions(
-                        gazelle_site, extract_dir, group_id, "WEB", lossy,
-                        spectrals, encoding, spectrals_after,
+                        gazelle_site,
+                        extract_dir,
+                        group_id,
+                        "WEB",
+                        lossy,
+                        spectrals,
+                        encoding,
+                        spectrals_after,
                     )
                     upload(
                         gazelle_site,
@@ -415,15 +453,14 @@ def bandcamp_up(
                         skip_log_check=skip_log_check,
                         skip_integrity_check=skip_integrity_check,
                     )
+                except Exception as e:
+                    click.secho(
+                        f"\nUpload failed for {item['artist']} — {item['title']}: {e}",
+                        fg="red",
+                    )
                 finally:
-                    # Clean up extracted files after upload attempt
                     if extract_dir and os.path.isdir(extract_dir):
                         shutil.rmtree(extract_dir, ignore_errors=True)
-            except Exception as e:
-                click.secho(
-                    f"\nUpload failed for {item['artist']} — {item['title']}: {e}",
-                    fg="red",
-                )
     finally:
         cfg.upload.yes_all = original_yes_all
 

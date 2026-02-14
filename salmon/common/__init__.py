@@ -39,7 +39,7 @@ class Prompt:
     # https://stackoverflow.com/a/35514777
 
     def __init__(self):
-        self.q = asyncio.Queue()
+        self.q = None
         self.reader_added = False
         self.is_windows = platform.system() == "Windows"
         self.reader_task = None
@@ -48,6 +48,9 @@ class Prompt:
         asyncio.create_task(self.q.put(sys.stdin.readline()))
 
     async def __call__(self, msg, end="\n", flush=False):
+        # Create the Queue lazily inside the running event loop so it's
+        # always bound to the current loop (each asyncio.run() creates a new one).
+        self.q = asyncio.Queue()
         if not self.reader_added:
             if not self.is_windows:
                 try:

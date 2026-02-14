@@ -95,7 +95,11 @@ def run_metasearch(
         for search in searchstrs
         for s in sources.values()
     ]
-    task_responses = asyncio.run(asyncio.gather(*tasks))
+
+    async def _run():
+        return await asyncio.gather(*tasks)
+
+    task_responses = asyncio.run(_run())
     for source, result in [r or (None, None) for r in task_responses]:
         if result:
             if filter:

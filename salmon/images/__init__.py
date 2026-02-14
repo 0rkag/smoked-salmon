@@ -139,7 +139,11 @@ def upload_spectrals(spectrals, uploader=HOSTS[cfg.image.specs_uploader], succes
             for sid, filename, sp in specs_block
             if sid not in successful
         ]
-        for sid, urls in asyncio.run(asyncio.gather(*tasks)):
+
+        async def _run(_tasks=tasks):
+            return await asyncio.gather(*_tasks)
+
+        for sid, urls in asyncio.run(_run()):
             if urls:
                 response = {**response, sid: urls}
                 successful.add(sid)

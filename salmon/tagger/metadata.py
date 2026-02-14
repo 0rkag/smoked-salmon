@@ -147,7 +147,10 @@ def _select_choice(choices, rls_data):
                 return meta, source_url
             continue
 
-        metadatas = asyncio.run(asyncio.gather(*tasks))
+        async def _run(_tasks=tasks):
+            return await asyncio.gather(*_tasks)
+
+        metadatas = asyncio.run(_run())
         meta = combine_metadatas(
             *((s, m) for s, m in zip(sources, metadatas, strict=False) if m), base=rls_data, source_url=source_url
         )

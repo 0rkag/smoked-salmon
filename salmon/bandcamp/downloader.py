@@ -30,14 +30,23 @@ _FORMAT_EXTENSIONS = {
 }
 
 
-def download_and_extract(bc: BandcampCollection, bc_item: BandcampItem, dest_base_dir: str | None = None) -> str | None:
+def download_and_extract(
+    bc: BandcampCollection | None,
+    bc_item: BandcampItem,
+    dest_base_dir: str | None = None,
+    *,
+    download_url: str | None = None,
+) -> str | None:
     """Download a Bandcamp purchase and extract it.
 
     Args:
-        bc: BandcampCollection instance with auth
+        bc: BandcampCollection instance with auth (unused when download_url is provided)
         bc_item: The original bandcampsync BandcampItem object
         dest_base_dir: Base directory for extraction. Falls back to
                        cfg.directory.tmp_dir or cfg.directory.download_directory.
+        download_url: Pre-resolved download URL. When provided, skips the
+                      bc.get_download_url() call, making this function safe
+                      to call from a background thread without sharing bc.
 
     Returns:
         Path to extracted folder, or None on failure.
@@ -49,9 +58,10 @@ def download_and_extract(bc: BandcampCollection, bc_item: BandcampItem, dest_bas
     title = bc_item.item_title
     click.secho(f"\nDownloading: {artist} — {title}", fg="cyan", bold=True)
 
-    # Get download URL via bandcampsync
-    download_format = cfg.bandcamp.download_format
-    download_url = bc.get_download_url(bc_item, encoding=download_format)
+    # Get download URL via bandcampsync (skip if pre-resolved)
+    if download_url is None:
+        download_format = cfg.bandcamp.download_format
+        download_url = bc.get_download_url(bc_item, encoding=download_format)
     if not download_url:
         click.secho("  Could not find download URL. Item may be streaming-only.", fg="red")
         return None
