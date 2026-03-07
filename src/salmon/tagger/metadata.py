@@ -34,9 +34,35 @@ async def get_metadata(path: str, tags: dict[str, Any], rls_data: dict[str, Any]
     searchstrs = make_searchstrs(rls_data["artists"], rls_data["title"])
     click.secho(f"Searching for '{searchstrs}' releases...")
     artists_list = [a for a, _ in rls_data["artists"]]
+    main_artists = [a for a, i in rls_data["artists"] if i == "main"]
     album_title = rls_data["title"]
+
+    # Detect VA releases
+    is_va = (
+        len(main_artists) > 3
+        or any("various" in a.lower() for a in main_artists)
+        or len(main_artists) == 0
+    )
+
+    # Extract year as int
+    year = None
+    if rls_data.get("year"):
+        try:
+            year = int(str(rls_data["year"])[:4])
+        except (ValueError, TypeError):
+            pass
+
     search_results = await run_metasearch(
-        searchstrs, filter=False, track_count=len(tags), artists=artists_list, album=album_title
+        searchstrs,
+        filter=True,
+        track_count=len(tags),
+        artists=artists_list,
+        album=album_title,
+        year=year,
+        label=rls_data.get("label"),
+        catno=rls_data.get("catno"),
+        source_medium=rls_data.get("source"),
+        is_va=is_va,
     )
     choices = _print_search_results(search_results, rls_data)
     metadata, source_url = await _select_choice(choices, rls_data)
