@@ -11,7 +11,7 @@ from salmon.sources.qobuz import QobuzBase
 
 
 class Searcher(QobuzBase, SearchMixin):
-    async def search_releases(self, searchstr, limit):
+    async def search_releases(self, searchstr, limit, **kwargs):
         if not cfg.metadata.qobuz.app_id:
             return "Qobuz", {}
 
@@ -63,6 +63,7 @@ class Searcher(QobuzBase, SearchMixin):
                             ed_title=ed_title,
                             explicit=rls.get("parental_warning", False),
                         ),
+                        1,
                     )
                 except (KeyError, TypeError, AttributeError):
                     # Skip individual release if it has missing/malformed data

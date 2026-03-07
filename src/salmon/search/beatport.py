@@ -67,7 +67,6 @@ class Searcher(BeatportBase, SearchMixin):
                 try:
                     rls_id = result["release_id"]
 
-                    # Filter artists to get only main artists (not remixers)
                     main_artists = [a["artist_name"] for a in result["artists"] if a["artist_type_name"] == "Artist"]
 
                     title = result["release_name"]
@@ -80,6 +79,7 @@ class Searcher(BeatportBase, SearchMixin):
                         releases[rls_id] = (
                             IdentData(artists, title, None, None, "WEB"),
                             self.format_result(artists, title, label),
+                            1,
                         )
                 except (KeyError, IndexError) as e:
                     raise ScrapeError("Failed to parse search result item") from e
@@ -92,7 +92,7 @@ class Searcher(BeatportBase, SearchMixin):
 
         return "Beatport", releases
 
-    async def search_releases(self, searchstr: str, limit: int) -> tuple[str, dict]:
+    async def search_releases(self, searchstr: str, limit: int, **kwargs) -> tuple[str, dict]:
         token_storage = await self.load_token_storage()
         if token_storage:
             resp: tuple[str, dict] | None = await handle_scrape_errors(

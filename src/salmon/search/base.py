@@ -41,10 +41,18 @@ class LabelRlsData(msgspec.Struct, frozen=True):
 
 class SearchMixin(ABC):
     @abstractmethod
-    async def search_releases(self, searchstr: str, limit: int) -> tuple[str, dict[str, Any]]:
-        """
-        Search the metadata site for a release string and return a dictionary
-        of release IDs and search results strings.
+    async def search_releases(
+        self,
+        searchstr: str,
+        limit: int,
+        **kwargs,
+    ) -> tuple[str, dict[str, Any]]:
+        """Search the metadata site for releases.
+
+        Providers should use structured params where their API supports them,
+        falling back to searchstr for free-text search.
+
+        Supported kwargs: artist, album, year, label, catno, release_type, is_va
         """
         pass
 
