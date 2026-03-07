@@ -31,6 +31,11 @@ class Searcher(MusicBrainzBase, SearchMixin):
         year = kwargs.get("year")
         label = kwargs.get("label")
         catno = kwargs.get("catno")
+<<<<<<< HEAD
+=======
+        release_type = kwargs.get("release_type")
+        is_va = kwargs.get("is_va", False)
+>>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
 
         releases = {}
         result, fallback_level = await self._structured_search(
@@ -41,6 +46,11 @@ class Searcher(MusicBrainzBase, SearchMixin):
             year=year,
             label=label,
             catno=catno,
+<<<<<<< HEAD
+=======
+            release_type=release_type,
+            is_va=is_va,
+>>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
         )
         for rls in result.get("release-list", []):
             try:
@@ -72,6 +82,7 @@ class Searcher(MusicBrainzBase, SearchMixin):
                     edition += " " + rls_catno
 
                 if rls_label.lower() not in cfg.upload.search.excluded_labels:
+<<<<<<< HEAD
                     releases[rls["id"]] = SearchResult(
                         ident=IdentData(
                             artist=artists,
@@ -81,6 +92,15 @@ class Searcher(MusicBrainzBase, SearchMixin):
                             source=source or "",
                             label=rls_label or None,
                             catno=rls_catno or None,
+=======
+                    releases[rls["id"]] = (
+                        IdentData(
+                            artists,
+                            rls["title"],
+                            None,
+                            track_count,
+                            source or "",
+>>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
                         ),
                         formatted=self.format_result(
                             artists,
@@ -89,7 +109,11 @@ class Searcher(MusicBrainzBase, SearchMixin):
                             ed_title=source,
                             track_count=track_count,
                         ),
+<<<<<<< HEAD
                         fallback_level=fallback_level,
+=======
+                        fallback_level,
+>>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
                     )
             except (TypeError, IndexError) as e:
                 raise ScrapeError("Failed to parse scraped search results.") from e
@@ -107,6 +131,11 @@ class Searcher(MusicBrainzBase, SearchMixin):
         year,
         label,
         catno,
+<<<<<<< HEAD
+=======
+        release_type,
+        is_va,
+>>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
     ):
         """Try structured params with fallback chain."""
         chains = self._build_fallback_chain(
@@ -116,6 +145,7 @@ class Searcher(MusicBrainzBase, SearchMixin):
             year=year,
             label=label,
             catno=catno,
+<<<<<<< HEAD
         )
         for search_kwargs, level in chains:
             result = await asyncio.to_thread(musicbrainzngs.search_releases, limit=limit, **search_kwargs)
@@ -142,12 +172,37 @@ class Searcher(MusicBrainzBase, SearchMixin):
         if has_real_artist and album:
             if year and label and catno:
                 chains.append((
+=======
+            release_type=release_type,
+            is_va=is_va,
+        )
+        for level, search_kwargs in enumerate(chains):
+            result = await asyncio.to_thread(musicbrainzngs.search_releases, limit=limit, **search_kwargs)
+            if result.get("release-list"):
+                return result, level
+        return {"release-list": []}, len(chains) - 1
+
+    @staticmethod
+    def _build_fallback_chain(searchstr, *, artist, album, year, label, catno, release_type, is_va):
+        chains = []
+        if is_va:
+            if album and label and catno:
+                chains.append({"release": album, "label": label, "catno": catno})
+            if album and label:
+                chains.append({"release": album, "label": label})
+            if album:
+                chains.append({"release": album})
+        else:
+            if artist and album and year and label and catno:
+                chains.append(
+>>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
                     {
                         "artist": artist,
                         "release": album,
                         "date": str(year),
                         "label": label,
                         "catno": catno,
+<<<<<<< HEAD
                     },
                     FallbackLevel.STRUCTURED,
                 ))
@@ -197,4 +252,13 @@ class Searcher(MusicBrainzBase, SearchMixin):
 
         # --- Tier 3: free text ---
         chains.append(({"query": searchstr}, FallbackLevel.FREE_TEXT))
+=======
+                    }
+                )
+            if artist and album and year:
+                chains.append({"artist": artist, "release": album, "date": str(year)})
+            if artist and album:
+                chains.append({"artist": artist, "release": album})
+        chains.append({"query": searchstr})
+>>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
         return chains

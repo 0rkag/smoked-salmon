@@ -13,12 +13,17 @@ from salmon.sources.qobuz import QobuzBase
 
 
 class Searcher(QobuzBase, SearchMixin):
+<<<<<<< HEAD
     @staticmethod
     def is_active() -> bool:
         return bool(cfg.metadata.qobuz.app_id and cfg.metadata.qobuz.user_auth_token)
 
     async def search_releases(self, searchstr, limit, **kwargs):
         if not self.is_active():
+=======
+    async def search_releases(self, searchstr, limit, **kwargs):
+        if not cfg.metadata.qobuz.app_id:
+>>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
             return "Qobuz", {}
 
         releases = {}
@@ -71,7 +76,11 @@ class Searcher(QobuzBase, SearchMixin):
                             ed_title=ed_title,
                             explicit=rls.get("parental_warning", False),
                         ),
+<<<<<<< HEAD
                         fallback_level=FallbackLevel.FREE_TEXT,
+=======
+                        1,
+>>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
                     )
                 except (KeyError, TypeError, AttributeError):
                     # Skip individual release if it has missing/malformed data

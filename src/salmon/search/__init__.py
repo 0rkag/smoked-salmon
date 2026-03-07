@@ -18,8 +18,12 @@ from salmon.search import (
     qobuz,
     tidal,
 )
+<<<<<<< HEAD
 from salmon.search.base import SearchResult
 from salmon.search.scoring import TagData, score_result
+=======
+from salmon.search.scoring import score_result
+>>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
 
 SEARCHSOURCES = {
     "Bandcamp": bandcamp,
@@ -55,7 +59,11 @@ async def metas(searchstr: tuple[str, ...], track_count: int | None, limit: int)
     search_query = " ".join(searchstr)
     click.secho(f"Searching {', '.join(SEARCHSOURCES)} (searchstrs: {search_query})", fg="cyan", bold=True)
 
+<<<<<<< HEAD
     results = await run_metasearch([search_query], limit=limit, track_count=track_count, apply_filter=False)
+=======
+    results = await run_metasearch([search_query], limit=limit, track_count=track_count, filter=False)
+>>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
     not_found: list[str] = []
     inactive_sources: list[str] = []
     source_errors = set(SEARCHSOURCES.keys()) - set(results)
@@ -63,7 +71,11 @@ async def metas(searchstr: tuple[str, ...], track_count: int | None, limit: int)
         if releases:
             click.secho(f"\nResults from {source}:", fg="yellow", bold=True)
             for rls_id, release in releases.items():
+<<<<<<< HEAD
                 rls_name = release.ident.album
+=======
+                rls_name = release[0].album
+>>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
                 url = SEARCHSOURCES[source].Searcher.format_url(rls_id, rls_name)
                 click.echo(f"> {release.formatted} {url}")
         elif source:
@@ -91,8 +103,13 @@ async def run_metasearch(
     track_count: int | None = None,
     artists: list[str] | None = None,
     album: str | None = None,
+<<<<<<< HEAD
     *,
     apply_filter: bool = True,
+=======
+    filter: bool = True,
+    *,
+>>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
     year: int | None = None,
     label: str | None = None,
     catno: str | None = None,
@@ -108,7 +125,11 @@ async def run_metasearch(
         track_count: Filter by track count if specified.
         artists: Filter by artists if specified.
         album: Filter by album name if specified.
+<<<<<<< HEAD
         apply_filter: Whether to apply scoring/filtering.
+=======
+        filter: Whether to apply scoring/filtering.
+>>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
         year: Release year for scoring.
         label: Label name for scoring.
         catno: Catalogue number for scoring.
@@ -120,12 +141,19 @@ async def run_metasearch(
     """
     sources = SEARCHSOURCES if not sources else {k: m for k, m in SEARCHSOURCES.items() if k in sources}
 
+<<<<<<< HEAD
     # Split into active and inactive sources
     active_sources = {k: m for k, m in sources.items() if m.Searcher.is_active()}
     inactive_sources = {k for k in sources if k not in active_sources}
 
     # Build artist string for structured search
     artist_str = _derive_artist_str(artists, is_va=is_va)
+=======
+    # Build artist string for structured search
+    artist_str = None
+    if artists and not is_va:
+        artist_str = artists[0] if len(artists) == 1 else ", ".join(artists[:3])
+>>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
 
     structured_kwargs = {
         "artist": artist_str,
@@ -136,6 +164,7 @@ async def run_metasearch(
         "is_va": is_va,
     }
 
+<<<<<<< HEAD
     tag = TagData(
         artist=artist_str,
         album=album,
@@ -148,6 +177,9 @@ async def run_metasearch(
     )
 
     results: dict[str, Any] = {name: None for name in inactive_sources}
+=======
+    results: dict[str, Any] = {}
+>>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
     tasks = [
         handle_scrape_errors(s.Searcher().search_releases(search, limit, **structured_kwargs))
         for search in searchstrs
@@ -156,14 +188,30 @@ async def run_metasearch(
     task_responses = await asyncio.gather(*tasks)
 
     for source, result in [r or (None, None) for r in task_responses]:
+<<<<<<< HEAD
         if result and apply_filter:
             result = _score_and_filter_results(result, tag)
+=======
+        if result and filter:
+            result = _score_and_filter_results(
+                result,
+                tag_artist=artist_str,
+                tag_album=album,
+                tag_year=year,
+                tag_track_count=track_count,
+                tag_source=source_medium,
+                tag_label=label,
+                tag_catno=catno,
+                is_va=is_va,
+            )
+>>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
         if source:
             results[source] = result
     return results
 
 
 def _score_and_filter_results(
+<<<<<<< HEAD
     results: dict[Any, SearchResult],
     tag: TagData,
 ) -> dict[Any, SearchResult]:
@@ -183,10 +231,59 @@ def _score_and_filter_results(
 
     # Sort by (score desc, fallback_level asc) — structured matches win ties.
     scored.sort(key=lambda x: (-x[2], int(x[1].fallback_level)))
+=======
+    results: dict[str, Any],
+    *,
+    tag_artist: str | None,
+    tag_album: str | None,
+    tag_year: int | str | None,
+    tag_track_count: int | None,
+    tag_source: str | None,
+    tag_label: str | None,
+    tag_catno: str | None,
+    is_va: bool,
+) -> dict[str, Any]:
+    """Score results against tag metadata and filter by threshold."""
+    scored: list[tuple[Any, Any, float]] = []
+
+    for rls_id, result_tuple in results.items():
+        ident_data = result_tuple[0]
+        formatted_str = result_tuple[1]
+        fallback_level = result_tuple[2] if len(result_tuple) > 2 else 1
+
+        s = score_result(
+            result_artist=ident_data.artist,
+            result_album=ident_data.album,
+            result_year=ident_data.year,
+            result_track_count=ident_data.track_count,
+            result_source=ident_data.source,
+            result_label=None,
+            result_catno=None,
+            tag_artist=tag_artist,
+            tag_album=tag_album,
+            tag_year=tag_year,
+            tag_track_count=tag_track_count,
+            tag_source=tag_source,
+            tag_label=tag_label,
+            tag_catno=tag_catno,
+            is_va=is_va,
+            fallback_level=fallback_level,
+        )
+        scored.append((rls_id, (ident_data, formatted_str), s))
+
+    # Sort by score descending
+    scored.sort(key=lambda x: x[2], reverse=True)
+>>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
 
     # Filter by threshold unless show_all_results is set
     threshold = cfg.upload.search.min_score_threshold
     if not cfg.upload.search.show_all_results:
+<<<<<<< HEAD
         scored = [(rid, r, s) for rid, r, s in scored if s >= threshold]
 
     return {rid: r for rid, r, _ in scored}
+=======
+        scored = [(rid, data, s) for rid, data, s in scored if s >= threshold]
+
+    return {rid: data for rid, data, _ in scored}
+>>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)

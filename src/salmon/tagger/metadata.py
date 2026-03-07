@@ -71,7 +71,11 @@ async def get_metadata(path: str, tags: dict[str, Any], rls_data: dict[str, Any]
     album_title = rls_data["title"]
 
     # Detect VA releases
+<<<<<<< HEAD
     is_va = _detect_va(main_artists)
+=======
+    is_va = len(main_artists) > 3 or any("various" in a.lower() for a in main_artists) or len(main_artists) == 0
+>>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
 
     # Extract year as int
     year = None

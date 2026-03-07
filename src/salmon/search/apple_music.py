@@ -82,7 +82,11 @@ class Searcher(AppleMusicBase, SearchMixin):
                             explicit=explicit,
                             clean=clean,
                         ),
+<<<<<<< HEAD
                         fallback_level=FallbackLevel.FREE_TEXT,
+=======
+                        1,
+>>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
                     )
 
         return "Apple Music", releases
