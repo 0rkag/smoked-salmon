@@ -1,6 +1,4 @@
 import asyncio
-import re
-from itertools import chain
 from typing import Any
 
 import asyncclick as click
@@ -9,9 +7,6 @@ from salmon import cfg
 from salmon.common import (
     commandgroup,
     handle_scrape_errors,
-    normalize_accents,
-    re_split,
-    re_strip,
 )
 from salmon.search import (
     apple_music,
@@ -23,6 +18,7 @@ from salmon.search import (
     qobuz,
     tidal,
 )
+from salmon.search.scoring import score_result
 
 SEARCHSOURCES = {
     "Bandcamp": bandcamp,
@@ -45,7 +41,7 @@ async def metas(searchstr: tuple[str, ...], track_count: int | None, limit: int)
     search_query = " ".join(searchstr)
     click.secho(f"Searching {', '.join(SEARCHSOURCES)} (searchstrs: {search_query})", fg="cyan", bold=True)
 
-    results = await run_metasearch([search_query], limit=limit, track_count=track_count)
+    results = await run_metasearch([search_query], limit=limit, track_count=track_count, filter=False)
     not_found: list[str] = []
     inactive_sources: list[str] = []
     source_errors = set(SEARCHSOURCES.keys()) - set(results)
@@ -53,7 +49,7 @@ async def metas(searchstr: tuple[str, ...], track_count: int | None, limit: int)
         if releases:
             click.secho(f"\nResults from {source}:", fg="yellow", bold=True)
             for rls_id, release in releases.items():
-                rls_name = release[0][1]
+                rls_name = release[0].album
                 url = SEARCHSOURCES[source].Searcher.format_url(rls_id, rls_name)
                 click.echo(f"> {release[1]} {url}")
         elif source:
@@ -82,6 +78,12 @@ async def run_metasearch(
     artists: list[str] | None = None,
     album: str | None = None,
     filter: bool = True,
+    *,
+    year: int | None = None,
+    label: str | None = None,
+    catno: str | None = None,
+    source_medium: str | None = None,
+    is_va: bool = False,
 ) -> dict[str, Any]:
     """Run a search for releases matching the searchstr.
 
@@ -92,97 +94,104 @@ async def run_metasearch(
         track_count: Filter by track count if specified.
         artists: Filter by artists if specified.
         album: Filter by album name if specified.
-        filter: Whether to apply filtering.
+        filter: Whether to apply scoring/filtering.
+        year: Release year for scoring.
+        label: Label name for scoring.
+        catno: Catalogue number for scoring.
+        source_medium: Source medium (WEB/CD/Vinyl) for scoring.
+        is_va: Whether this is a VA release.
 
     Returns:
         Dict mapping source names to search results.
     """
     sources = SEARCHSOURCES if not sources else {k: m for k, m in SEARCHSOURCES.items() if k in sources}
+
+    # Build artist string for structured search
+    artist_str = None
+    if artists and not is_va:
+        artist_str = artists[0] if len(artists) == 1 else ", ".join(artists[:3])
+
+    structured_kwargs = {
+        "artist": artist_str,
+        "album": album,
+        "year": int(year) if year else None,
+        "label": label,
+        "catno": catno,
+        "is_va": is_va,
+    }
+
     results: dict[str, Any] = {}
     tasks = [
-        handle_scrape_errors(s.Searcher().search_releases(search, limit))
+        handle_scrape_errors(s.Searcher().search_releases(search, limit, **structured_kwargs))
         for search in searchstrs
         for s in sources.values()
     ]
     task_responses = await asyncio.gather(*tasks)
+
     for source, result in [r or (None, None) for r in task_responses]:
-        if result:
-            if filter:
-                result = filter_results(result, artists, album)
-            if track_count:
-                result = filter_by_track_count(result, track_count)
+        if result and filter:
+            result = _score_and_filter_results(
+                result,
+                tag_artist=artist_str,
+                tag_album=album,
+                tag_year=year,
+                tag_track_count=track_count,
+                tag_source=source_medium,
+                tag_label=label,
+                tag_catno=catno,
+                is_va=is_va,
+            )
         if source:
             results[source] = result
     return results
 
 
-def filter_results(
-    results: dict[str, Any] | None,
-    artists: list[str] | None,
-    album: str | None,
+def _score_and_filter_results(
+    results: dict[str, Any],
+    *,
+    tag_artist: str | None,
+    tag_album: str | None,
+    tag_year: int | str | None,
+    tag_track_count: int | None,
+    tag_source: str | None,
+    tag_label: str | None,
+    tag_catno: str | None,
+    is_va: bool,
 ) -> dict[str, Any]:
-    """Filter search results by artist and album.
+    """Score results against tag metadata and filter by threshold."""
+    scored: list[tuple[Any, Any, float]] = []
 
-    Args:
-        results: Search results to filter.
-        artists: Artist names to match.
-        album: Album name to match.
+    for rls_id, result_tuple in results.items():
+        ident_data = result_tuple[0]
+        formatted_str = result_tuple[1]
+        fallback_level = result_tuple[2] if len(result_tuple) > 2 else 1
 
-    Returns:
-        Filtered results dict.
-    """
-    filtered: dict[str, Any] = {}
-    for rls_id, result in (results or {}).items():
-        if artists:
-            split_artists: list[str] = []
-            for a in artists:
-                split_artists += re_split(re_strip(normalize_accents(a)))
-            stripped_rls_artist = re_strip(normalize_accents(result[0].artist))
+        s = score_result(
+            result_artist=ident_data.artist,
+            result_album=ident_data.album,
+            result_year=ident_data.year,
+            result_track_count=ident_data.track_count,
+            result_source=ident_data.source,
+            result_label=None,
+            result_catno=None,
+            tag_artist=tag_artist,
+            tag_album=tag_album,
+            tag_year=tag_year,
+            tag_track_count=tag_track_count,
+            tag_source=tag_source,
+            tag_label=tag_label,
+            tag_catno=tag_catno,
+            is_va=is_va,
+            fallback_level=fallback_level,
+        )
+        scored.append((rls_id, (ident_data, formatted_str), s))
 
-            if "Various" in result[0].artist:
-                if len(artists) == 1:
-                    continue
-            elif not any(a in stripped_rls_artist for a in split_artists) or not any(
-                a in stripped_rls_artist.split() for a in chain.from_iterable([a.split() for a in split_artists])
-            ):
-                continue
-        if album and not _compare_albums(album, result[0].album):
-            continue
-        filtered[rls_id] = result
-    return filtered
+    # Sort by score descending
+    scored.sort(key=lambda x: x[2], reverse=True)
 
+    # Filter by threshold unless show_all_results is set
+    threshold = cfg.upload.search.min_score_threshold
+    if not cfg.upload.search.show_all_results:
+        scored = [(rid, data, s) for rid, data, s in scored if s >= threshold]
 
-def filter_by_track_count(results: dict[str, Any], track_count: int) -> dict[str, Any]:
-    """Filter results by track count.
-
-    Args:
-        results: Search results to filter.
-        track_count: Expected track count.
-
-    Returns:
-        Filtered results dict.
-    """
-    filtered: dict[str, Any] = {}
-    for rls_id, (ident_data, res_str) in results.items():
-        if not ident_data.track_count or abs(ident_data.track_count - track_count) <= 1:
-            filtered[rls_id] = (ident_data, res_str)
-    return filtered
-
-
-def _compare_albums(one: str, two: str) -> bool:
-    """Compare two album names for similarity.
-
-    Args:
-        one: First album name.
-        two: Second album name.
-
-    Returns:
-        True if albums are considered similar.
-    """
-    one, two = normalize_accents(one, two)
-    regex_pattern = r" \(?(mix|feat|with|incl|prod).+"
-    return bool(
-        re_strip(one) == re_strip(two)
-        or re_strip(re.sub(regex_pattern, "", one, flags=re.IGNORECASE))
-        == re_strip(re.sub(regex_pattern, "", two, flags=re.IGNORECASE))
-    )
+    return {rid: data for rid, data, _ in scored}

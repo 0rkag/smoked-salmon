@@ -7,7 +7,7 @@ from salmon.sources import BandcampBase
 
 
 class Searcher(BandcampBase, SearchMixin):
-    async def search_releases(self, searchstr: str, limit: int) -> tuple[str, dict]:
+    async def search_releases(self, searchstr: str, limit: int, **kwargs) -> tuple[str, dict]:
         releases: dict[Any, Any] = {}
         try:
             soup = await self.fetch_page(self.search_url, params={"q": searchstr}, follow_redirects=False)
@@ -46,6 +46,7 @@ class Searcher(BandcampBase, SearchMixin):
                     releases[(rls_url, release_type, rls_id)] = (
                         IdentData(artists, title, year, track_count, "WEB"),
                         self.format_result(artists, title, f"{year} {releaser}", track_count=track_count),
+                        1,
                     )
 
                     if len(releases) == limit:

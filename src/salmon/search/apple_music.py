@@ -81,6 +81,7 @@ class Searcher(AppleMusicBase, SearchMixin):
                             explicit=explicit,
                             clean=clean,
                         ),
+                        1,
                     )
 
         return "Apple Music", releases

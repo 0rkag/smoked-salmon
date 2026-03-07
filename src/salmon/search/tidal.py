@@ -13,7 +13,7 @@ COUNTRIES = [cc.upper() for cc in cfg.metadata.tidal.regions]
 
 
 class Searcher(TidalBase, SearchMixin):
-    async def search_releases(self, searchstr, limit):
+    async def search_releases(self, searchstr, limit, **kwargs):
         """
         Run a search of Tidal albums.
         Warnings are for stream quality/streambility.
@@ -90,6 +90,7 @@ class Searcher(TidalBase, SearchMixin):
                             explicit=explicit,
                             clean=not explicit,
                         ),
+                        1,
                     ),
                 )
             )

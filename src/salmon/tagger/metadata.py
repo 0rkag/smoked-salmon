@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import json
 from copy import copy
 from itertools import islice
@@ -38,19 +39,13 @@ async def get_metadata(path: str, tags: dict[str, Any], rls_data: dict[str, Any]
     album_title = rls_data["title"]
 
     # Detect VA releases
-    is_va = (
-        len(main_artists) > 3
-        or any("various" in a.lower() for a in main_artists)
-        or len(main_artists) == 0
-    )
+    is_va = len(main_artists) > 3 or any("various" in a.lower() for a in main_artists) or len(main_artists) == 0
 
     # Extract year as int
     year = None
     if rls_data.get("year"):
-        try:
+        with contextlib.suppress(ValueError, TypeError):
             year = int(str(rls_data["year"])[:4])
-        except (ValueError, TypeError):
-            pass
 
     search_results = await run_metasearch(
         searchstrs,

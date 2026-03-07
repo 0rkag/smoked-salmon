@@ -9,7 +9,7 @@ from salmon.sources import BeatportBase
 
 
 class Searcher(BeatportBase, SearchMixin):
-    async def search_releases(self, searchstr: str, limit: int) -> tuple[str, dict]:
+    async def search_releases(self, searchstr: str, limit: int, **kwargs) -> tuple[str, dict]:
         releases: dict[Any, Any] = {}
         soup = await self.fetch_page(self.search_url, params={"q": searchstr})
         try:
@@ -39,6 +39,7 @@ class Searcher(BeatportBase, SearchMixin):
                         releases[rls_id] = (
                             IdentData(artists, title, None, None, "WEB"),
                             self.format_result(artists, title, label),
+                            1,
                         )
                 except (KeyError, IndexError) as e:
                     raise ScrapeError("Failed to parse search result item") from e

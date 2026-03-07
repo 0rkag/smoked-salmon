@@ -12,23 +12,79 @@ from salmon.sources import DeezerBase
 
 
 class Searcher(DeezerBase, SearchMixin):
-    async def search_releases(self, searchstr, limit):
+    async def search_releases(self, searchstr, limit, **kwargs):
+        artist = kwargs.get("artist")
+        album = kwargs.get("album")
+        label = kwargs.get("label")
+        is_va = kwargs.get("is_va", False)
+
         releases = {}
-        resp = await self.get_json("/search/album", params={"q": searchstr})
-        # print(resp)
-        for rls in resp["data"]:
+        query, fallback_level = self._build_query_with_fallback(
+            searchstr,
+            artist=artist,
+            album=album,
+            label=label,
+            is_va=is_va,
+        )
+        resp = await self.get_json("/search/album", params={"q": query})
+        for rls in resp.get("data", []):
             releases[rls["id"]] = (
-                IdentData(rls["artist"]["name"], rls["title"], None, rls["nb_tracks"], "WEB"),
+                IdentData(
+                    rls["artist"]["name"],
+                    rls["title"],
+                    None,
+                    rls["nb_tracks"],
+                    "WEB",
+                ),
                 self.format_result(
                     rls["artist"]["name"],
                     rls["title"],
                     None,
                     track_count=rls["nb_tracks"],
                 ),
+                fallback_level,
             )
             if len(releases) == limit:
                 break
+
+        # If structured query returned nothing and we haven't tried free-text yet
+        if not releases and fallback_level == 0:
+            resp = await self.get_json("/search/album", params={"q": searchstr})
+            for rls in resp.get("data", []):
+                releases[rls["id"]] = (
+                    IdentData(
+                        rls["artist"]["name"],
+                        rls["title"],
+                        None,
+                        rls["nb_tracks"],
+                        "WEB",
+                    ),
+                    self.format_result(
+                        rls["artist"]["name"],
+                        rls["title"],
+                        None,
+                        track_count=rls["nb_tracks"],
+                    ),
+                    1,
+                )
+                if len(releases) == limit:
+                    break
+
         return "Deezer", releases
+
+    @staticmethod
+    def _build_query_with_fallback(searchstr, *, artist, album, label, is_va):
+        """Build advanced query syntax. Returns (query, fallback_level)."""
+        parts = []
+        if not is_va and artist:
+            parts.append(f'artist:"{artist}"')
+        if album:
+            parts.append(f'album:"{album}"')
+        if label:
+            parts.append(f'label:"{label}"')
+        if parts:
+            return " ".join(parts), 0
+        return searchstr, 1
 
     async def get_artist_releases(self, artiststr):
         """

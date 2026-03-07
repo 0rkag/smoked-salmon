@@ -122,6 +122,8 @@ class UploadSearch(BaseStruct):
     # TODO: are these reasonable defaults?
     excluded_labels: list[str] = msgspec.field(default_factory=lambda: ["edm comps"])
     blacklisted_genres: list[str] = msgspec.field(default_factory=lambda: ["Soundtrack", "Asian Music"])
+    min_score_threshold: int = 40
+    show_all_results: bool = False
 
 
 class UploadFormatting(BaseStruct):
