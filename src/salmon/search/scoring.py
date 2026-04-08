@@ -27,6 +27,8 @@ def score_result(
 
     Returns a score from 0-100. Higher is better.
     fallback_level: 0 = structured match, 1+ = progressively looser.
+        Kept in the signature for future sort-tiebreaker use; does not
+        currently affect the returned score.
     """
     weights = _get_weights(is_va)
     total_weight = 0.0
@@ -67,11 +69,6 @@ def score_result(
         return 50.0
 
     score = (weighted_score / total_weight) * 100.0
-
-    # Small bonus for structured match level
-    bonus = max(0, 5 - fallback_level * 2)
-    score = min(100.0, score + bonus)
-
     return round(score, 1)
 
 
