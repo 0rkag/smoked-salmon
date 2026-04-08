@@ -1,3 +1,9 @@
+"""Weighted scoring for metadata search results.
+
+Pure, dependency-free scoring used by `run_metasearch` to rank search
+results against known tag metadata. See `score_result` for the scoring
+philosophy and weight semantics.
+"""
 from __future__ import annotations
 
 import re
