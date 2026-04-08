@@ -7,18 +7,23 @@ from salmon import cfg
 from salmon.common import parse_copyright
 from salmon.errors import ScrapeError
 from salmon.search.base import ArtistRlsData, IdentData, SearchMixin
+from salmon.search.scoring import FallbackLevel
 from salmon.sources import TidalBase
 
 COUNTRIES = [cc.upper() for cc in cfg.metadata.tidal.regions]
 
 
 class Searcher(TidalBase, SearchMixin):
+    @staticmethod
+    def is_active() -> bool:
+        return bool(cfg.metadata.tidal.token)
+
     async def search_releases(self, searchstr, limit, **kwargs):
         """
         Run a search of Tidal albums.
         Warnings are for stream quality/streambility.
         """
-        if not cfg.metadata.tidal.token:
+        if not self.is_active():
             return "Tidal", {}
 
         releases, tasks = {}, []
@@ -90,7 +95,7 @@ class Searcher(TidalBase, SearchMixin):
                             explicit=explicit,
                             clean=not explicit,
                         ),
-                        1,
+                        FallbackLevel.FREE_TEXT,
                     ),
                 )
             )

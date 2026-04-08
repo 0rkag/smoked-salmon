@@ -8,6 +8,7 @@ from salmon.search.base import (
     LabelRlsData,
     SearchMixin,
 )
+from salmon.search.scoring import FallbackLevel
 from salmon.sources import DeezerBase
 
 
@@ -48,7 +49,7 @@ class Searcher(DeezerBase, SearchMixin):
                 break
 
         # If structured query returned nothing and we haven't tried free-text yet
-        if not releases and fallback_level == 0:
+        if not releases and fallback_level == FallbackLevel.STRUCTURED:
             resp = await self.get_json("/search/album", params={"q": searchstr})
             for rls in resp.get("data", []):
                 releases[rls["id"]] = (
@@ -65,7 +66,7 @@ class Searcher(DeezerBase, SearchMixin):
                         None,
                         track_count=rls["nb_tracks"],
                     ),
-                    1,
+                    FallbackLevel.FREE_TEXT,
                 )
                 if len(releases) == limit:
                     break
@@ -83,8 +84,8 @@ class Searcher(DeezerBase, SearchMixin):
         if label:
             parts.append(f'label:"{label}"')
         if parts:
-            return " ".join(parts), 0
-        return searchstr, 1
+            return " ".join(parts), FallbackLevel.STRUCTURED
+        return searchstr, FallbackLevel.FREE_TEXT
 
     async def get_artist_releases(self, artiststr):
         """

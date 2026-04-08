@@ -2,6 +2,20 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from enum import IntEnum
+
+
+class FallbackLevel(IntEnum):
+    """How closely a search result matched the structured query.
+
+    Lower values = more structured match. Currently informational only;
+    kept as a sort-tiebreaker hook for future use.
+    """
+
+    STRUCTURED = 0  # Full structured query matched directly
+    PARTIAL_STRUCTURED = 1  # Dropped some structured params
+    FREE_TEXT = 2  # Fell back to plain searchstr
+    LOOSE = 3  # Free text with extra normalization (e.g. accent-stripped)
 
 
 def score_result(

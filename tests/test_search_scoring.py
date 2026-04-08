@@ -195,3 +195,23 @@ class TestScoreWeightSemantics:
         # album(25) + artist(20) + year(10, 0 score) + label(10, 0 score)
         # = 45/65 * 100 ≈ 69.2
         assert 65 <= s <= 75
+
+
+class TestFallbackLevelEnum:
+    def test_enum_values_ordered(self):
+        from salmon.search.scoring import FallbackLevel
+        assert FallbackLevel.STRUCTURED < FallbackLevel.PARTIAL_STRUCTURED
+        assert FallbackLevel.PARTIAL_STRUCTURED < FallbackLevel.FREE_TEXT
+        assert FallbackLevel.FREE_TEXT < FallbackLevel.LOOSE
+
+    def test_enum_is_int_compatible(self):
+        from salmon.search.scoring import FallbackLevel
+        # Should accept in score_result without error
+        s = score_result(
+            result_artist="A", result_album="B", result_year=None,
+            result_track_count=None, result_source=None,
+            result_label=None, result_catno=None,
+            tag_artist="A", tag_album="B",
+            fallback_level=FallbackLevel.STRUCTURED,
+        )
+        assert 0 <= s <= 100
