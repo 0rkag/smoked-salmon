@@ -7,12 +7,17 @@ from salmon.search.base import (
     IdentData,
     SearchMixin,
 )
+from salmon.search.scoring import FallbackLevel
 from salmon.sources.qobuz import QobuzBase
 
 
 class Searcher(QobuzBase, SearchMixin):
+    @staticmethod
+    def is_active() -> bool:
+        return bool(cfg.metadata.qobuz.app_id and cfg.metadata.qobuz.user_auth_token)
+
     async def search_releases(self, searchstr, limit, **kwargs):
-        if not cfg.metadata.qobuz.app_id:
+        if not self.is_active():
             return "Qobuz", {}
 
         releases = {}
@@ -35,9 +40,10 @@ class Searcher(QobuzBase, SearchMixin):
                     year = self._parse_year(rls.get("release_date_original"))
                     track_count = rls["tracks_count"]
 
+                    rls_label = (rls.get("label") or {}).get("name")
                     edition = f"{year}"
-                    if rls.get("label", {}).get("name"):
-                        edition += f" {rls['label']['name']}"
+                    if rls_label:
+                        edition += f" {rls_label}"
 
                     format_details = []
                     if rls.get("hires"):
@@ -54,6 +60,7 @@ class Searcher(QobuzBase, SearchMixin):
                             year,
                             track_count,
                             "WEB",
+                            label=rls_label,
                         ),
                         self.format_result(
                             artists,
@@ -63,7 +70,7 @@ class Searcher(QobuzBase, SearchMixin):
                             ed_title=ed_title,
                             explicit=rls.get("parental_warning", False),
                         ),
-                        1,
+                        FallbackLevel.FREE_TEXT,
                     )
                 except (KeyError, TypeError, AttributeError):
                     # Skip individual release if it has missing/malformed data

@@ -3,6 +3,7 @@ from typing import Any
 
 from salmon.errors import ScrapeError
 from salmon.search.base import IdentData, SearchMixin
+from salmon.search.scoring import FallbackLevel
 from salmon.sources import BandcampBase
 
 
@@ -35,8 +36,12 @@ class Searcher(BandcampBase, SearchMixin):
                     artists = subhead_match[1].strip() if subhead_match else ""
 
                     # For single tracks, there's just one track
-                    length_match = re.search(r"(\d+) tracks?", meta.select(".length")[0].text)
-                    track_count = 1 if release_type == "track" else int(length_match[1]) if length_match else 1
+                    length_elems = meta.select(".length")
+                    if release_type == "track" or not length_elems:
+                        track_count = 1
+                    else:
+                        length_match = re.search(r"(\d+) tracks?", length_elems[0].text)
+                        track_count = int(length_match[1]) if length_match else 1
 
                     releaser = rls_url.split(".bandcamp.com")[0]
                     date = meta.select(".released")[0].text.strip()
@@ -46,7 +51,7 @@ class Searcher(BandcampBase, SearchMixin):
                     releases[(rls_url, release_type, rls_id)] = (
                         IdentData(artists, title, year, track_count, "WEB"),
                         self.format_result(artists, title, f"{year} {releaser}", track_count=track_count),
-                        1,
+                        FallbackLevel.FREE_TEXT,
                     )
 
                     if len(releases) == limit:

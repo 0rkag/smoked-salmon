@@ -6,7 +6,19 @@ import musicbrainzngs
 from salmon import cfg
 from salmon.errors import ScrapeError
 from salmon.search.base import IdentData, SearchMixin
+from salmon.search.scoring import FallbackLevel
 from salmon.sources import MusicBrainzBase
+
+
+def _map_fallback_level(idx: int, last_idx: int) -> FallbackLevel:
+    """Map chain index to FallbackLevel enum."""
+    if idx == 0:
+        return FallbackLevel.STRUCTURED
+    if idx == 1:
+        return FallbackLevel.PARTIAL_STRUCTURED
+    if idx == last_idx:
+        return FallbackLevel.LOOSE
+    return FallbackLevel.FREE_TEXT
 
 
 class Searcher(MusicBrainzBase, SearchMixin):
@@ -68,6 +80,8 @@ class Searcher(MusicBrainzBase, SearchMixin):
                             None,
                             track_count,
                             source or "",
+                            label=rls_label or None,
+                            catno=rls_catno or None,
                         ),
                         self.format_result(
                             artists,
@@ -108,11 +122,12 @@ class Searcher(MusicBrainzBase, SearchMixin):
             release_type=release_type,
             is_va=is_va,
         )
+        last_idx = len(chains) - 1
         for level, search_kwargs in enumerate(chains):
             result = await asyncio.to_thread(musicbrainzngs.search_releases, limit=limit, **search_kwargs)
             if result.get("release-list"):
-                return result, level
-        return {"release-list": []}, len(chains) - 1
+                return result, _map_fallback_level(level, last_idx)
+        return {"release-list": []}, FallbackLevel.LOOSE
 
     @staticmethod
     def _build_fallback_chain(searchstr, *, artist, album, year, label, catno, release_type, is_va):

@@ -6,11 +6,12 @@ import anyio
 from salmon import cfg
 from salmon.common import parse_copyright
 from salmon.search.base import IdentData, SearchMixin
+from salmon.search.scoring import FallbackLevel
 from salmon.sources import AppleMusicBase
 
 
 class Searcher(AppleMusicBase, SearchMixin):
-    async def search_releases(self, searchstr, limit):
+    async def search_releases(self, searchstr, limit, **kwargs):
         # Group langs by storefront — search once per storefront
         sf_langs = _get_storefronts_and_langs()
         per_sf: dict[str, list] = {}
@@ -81,7 +82,7 @@ class Searcher(AppleMusicBase, SearchMixin):
                             explicit=explicit,
                             clean=clean,
                         ),
-                        1,
+                        FallbackLevel.FREE_TEXT,
                     )
 
         return "Apple Music", releases

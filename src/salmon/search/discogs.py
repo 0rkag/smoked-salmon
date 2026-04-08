@@ -1,8 +1,11 @@
 import re
 
 import asyncclick as click
+from unidecode import unidecode
 
+from salmon import cfg
 from salmon.search.base import IdentData, SearchMixin
+from salmon.search.scoring import FallbackLevel
 from salmon.sources import DiscogsBase
 
 SOURCES = {
@@ -13,6 +16,10 @@ SOURCES = {
 
 
 class Searcher(DiscogsBase, SearchMixin):
+    @staticmethod
+    def is_active() -> bool:
+        return bool(cfg.metadata.discogs_token)
+
     async def search_releases(self, searchstr, limit, **kwargs):
         releases = {}
         artist = kwargs.get("artist")
@@ -39,9 +46,12 @@ class Searcher(DiscogsBase, SearchMixin):
             source = parse_source(rls["format"])
             ed_title = ", ".join(set(rls["format"]))
 
+            rls_label = None
+            rls_catno = rls.get("catno") or None
             edition = f"{rls_year} {source}"
             if rls["label"] and rls["label"][0] != "Not On Label":
-                edition += f" {rls['label'][0]} {rls['catno']}"
+                rls_label = rls["label"][0]
+                edition += f" {rls_label} {rls['catno']}"
             else:
                 edition += " Not On Label"
 
@@ -49,7 +59,7 @@ class Searcher(DiscogsBase, SearchMixin):
             collection_text = click.style("IN COLLECTION", bg="red", bold=True) if release_in_user_collection else None
 
             releases[rls["id"]] = (
-                IdentData(artists, title, rls_year, None, source or ""),
+                IdentData(artists, title, rls_year, None, source or "", label=rls_label, catno=rls_catno),
                 self.format_result(
                     artists,
                     title,
@@ -74,18 +84,23 @@ class Searcher(DiscogsBase, SearchMixin):
             catno=catno,
             is_va=is_va,
         )
+        last_idx = len(chains) - 1
         for level, params in enumerate(chains):
             resp = await self.get_json(
                 "/database/search",
                 params={**params, "type": "release", "perpage": 50},
             )
             if resp.get("results"):
-                return resp["results"][: limit * 2], level
-        return [], len(chains) - 1
+                return resp["results"][: limit * 2], _map_fallback_level(level, last_idx)
+        return [], FallbackLevel.LOOSE
 
     @staticmethod
     def _build_fallback_chain(searchstr, *, artist, album, year, label, catno, is_va):
         """Build a list of param dicts from most specific to least."""
+        # Clean inputs for structured search
+        artist = _clean_artist(artist) if artist else None
+        album = _clean_album(album) if album else None
+
         chains = []
         if is_va:
             if album and label and catno:
@@ -116,7 +131,24 @@ class Searcher(DiscogsBase, SearchMixin):
             if artist and album:
                 chains.append({"artist": artist, "release_title": album})
         chains.append({"q": searchstr})
+
+        # Also try with normalized accents as a final structured attempt
+        normalized = _normalize_accents(searchstr)
+        if normalized != searchstr:
+            chains.append({"q": normalized})
+
         return chains
+
+
+def _map_fallback_level(idx: int, last_idx: int) -> FallbackLevel:
+    """Map chain index to FallbackLevel enum."""
+    if idx == 0:
+        return FallbackLevel.STRUCTURED
+    if idx == 1:
+        return FallbackLevel.PARTIAL_STRUCTURED
+    if idx == last_idx:
+        return FallbackLevel.LOOSE
+    return FallbackLevel.FREE_TEXT
 
 
 def sanitize_artist_name(name):
@@ -126,6 +158,25 @@ def sanitize_artist_name(name):
     """
     name = re.sub(r" \(\d+\)$", "", name)
     return re.sub(r"\*+$", "", name)
+
+
+def _clean_artist(artist):
+    """Strip disambiguation suffixes and normalize for search."""
+    # Remove parenthetical disambiguations like (AU), (5), (UK), etc.
+    artist = re.sub(r"\s*\([^)]{1,5}\)\s*$", "", artist)
+    return _normalize_accents(artist).strip()
+
+
+def _clean_album(album):
+    """Strip EP/Single suffixes and normalize for search."""
+    album = re.sub(r"\s*[-–—]\s*(EP|Single)\s*$", "", album, flags=re.IGNORECASE)
+    album = re.sub(r"\s+(EP|Single)\s*$", "", album, flags=re.IGNORECASE)
+    return _normalize_accents(album).strip()
+
+
+def _normalize_accents(s):
+    """Transliterate non-ASCII characters to ASCII equivalents."""
+    return unidecode(s)
 
 
 def parse_source(formats):
