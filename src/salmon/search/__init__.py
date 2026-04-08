@@ -32,6 +32,19 @@ SEARCHSOURCES = {
 }
 
 
+def _derive_artist_str(artists: list[str] | None, *, is_va: bool) -> str | None:
+    """Derive the artist string to pass to structured search APIs.
+
+    Uses only the primary (first) artist. Most provider APIs expect a single
+    artist in their `artist` field and return zero results when given a
+    comma-joined list. The full artist list is still used for scoring
+    downstream via searchstr-based free-text search.
+    """
+    if is_va or not artists:
+        return None
+    return artists[0]
+
+
 @commandgroup.command()
 @click.argument("searchstr", nargs=-1, required=True)
 @click.option("--track-count", "-t", type=click.INT)
@@ -41,7 +54,7 @@ async def metas(searchstr: tuple[str, ...], track_count: int | None, limit: int)
     search_query = " ".join(searchstr)
     click.secho(f"Searching {', '.join(SEARCHSOURCES)} (searchstrs: {search_query})", fg="cyan", bold=True)
 
-    results = await run_metasearch([search_query], limit=limit, track_count=track_count, filter=False)
+    results = await run_metasearch([search_query], limit=limit, track_count=track_count, apply_filter=False)
     not_found: list[str] = []
     inactive_sources: list[str] = []
     source_errors = set(SEARCHSOURCES.keys()) - set(results)
@@ -77,8 +90,8 @@ async def run_metasearch(
     track_count: int | None = None,
     artists: list[str] | None = None,
     album: str | None = None,
-    filter: bool = True,
     *,
+    apply_filter: bool = True,
     year: int | None = None,
     label: str | None = None,
     catno: str | None = None,
@@ -94,7 +107,7 @@ async def run_metasearch(
         track_count: Filter by track count if specified.
         artists: Filter by artists if specified.
         album: Filter by album name if specified.
-        filter: Whether to apply scoring/filtering.
+        apply_filter: Whether to apply scoring/filtering.
         year: Release year for scoring.
         label: Label name for scoring.
         catno: Catalogue number for scoring.
@@ -106,10 +119,12 @@ async def run_metasearch(
     """
     sources = SEARCHSOURCES if not sources else {k: m for k, m in SEARCHSOURCES.items() if k in sources}
 
+    # Split into active and inactive sources
+    active_sources = {k: m for k, m in sources.items() if m.Searcher.is_active()}
+    inactive_sources = {k for k in sources if k not in active_sources}
+
     # Build artist string for structured search
-    artist_str = None
-    if artists and not is_va:
-        artist_str = artists[0] if len(artists) == 1 else ", ".join(artists[:3])
+    artist_str = _derive_artist_str(artists, is_va=is_va)
 
     structured_kwargs = {
         "artist": artist_str,
@@ -120,16 +135,16 @@ async def run_metasearch(
         "is_va": is_va,
     }
 
-    results: dict[str, Any] = {}
+    results: dict[str, Any] = {name: None for name in inactive_sources}
     tasks = [
         handle_scrape_errors(s.Searcher().search_releases(search, limit, **structured_kwargs))
         for search in searchstrs
-        for s in sources.values()
+        for s in active_sources.values()
     ]
     task_responses = await asyncio.gather(*tasks)
 
     for source, result in [r or (None, None) for r in task_responses]:
-        if result and filter:
+        if result and apply_filter:
             result = _score_and_filter_results(
                 result,
                 tag_artist=artist_str,
@@ -164,7 +179,7 @@ def _score_and_filter_results(
     for rls_id, result_tuple in results.items():
         ident_data = result_tuple[0]
         formatted_str = result_tuple[1]
-        fallback_level = result_tuple[2] if len(result_tuple) > 2 else 1
+        fallback_level = result_tuple[2]
 
         s = score_result(
             result_artist=ident_data.artist,
@@ -172,8 +187,8 @@ def _score_and_filter_results(
             result_year=ident_data.year,
             result_track_count=ident_data.track_count,
             result_source=ident_data.source,
-            result_label=None,
-            result_catno=None,
+            result_label=ident_data.label,
+            result_catno=ident_data.catno,
             tag_artist=tag_artist,
             tag_album=tag_album,
             tag_year=tag_year,
