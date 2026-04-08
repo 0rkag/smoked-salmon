@@ -215,3 +215,78 @@ class TestFallbackLevelEnum:
         assert FallbackLevel.STRUCTURED < FallbackLevel.PARTIAL_STRUCTURED
         assert FallbackLevel.PARTIAL_STRUCTURED < FallbackLevel.FREE_TEXT
         assert FallbackLevel.FREE_TEXT < FallbackLevel.LOOSE
+
+
+class TestLabelAsArtistCredit:
+    """When a release lists the LABEL in the artist field (common for
+    anonymous techno/dub), score_result should give partial credit instead
+    of treating it as a hard mismatch.
+    """
+
+    def test_unknown_artist_with_matching_label_gets_credit(self):
+        # The driving real-world case: hostom-004
+        # tag has Unknown Artist + label Hostom; result has Hostom as artist
+        score_with = _score(
+            tag_artist="Unknown Artist",
+            tag_album="HOSTOM - 004",
+            tag_label="Hostom",
+            tag_catno="HOSTOM004",
+            tag_year=2017,
+            tag_track_count=2,
+            tag_source=None,  # benchmark capture default
+            result_artist="Hostom",
+            result_album="HOSTOM - 004",
+            result_label="Hostom",
+            result_catno=None,
+            result_year=None,
+            result_track_count=2,
+            result_source="12\" Vinyl",
+        )
+        # Without cross-field credit: ~55 (artist contributes 0).
+        # With cross-field credit: ~69 (artist contributes 12 of 20).
+        # The remaining gap to 80 is the year/catno sparse-result penalty,
+        # which is a separate concern and not addressed by this fix.
+        assert score_with >= 65.0, f"expected >= 65 (with credit), got {score_with}"
+
+    def test_no_credit_when_artist_already_matches(self):
+        # When the artist legitimately matches, label-as-artist must NOT
+        # double-bump the score. Score should be the standard perfect match.
+        s = _score()  # everything matches
+        assert s == 100.0
+
+    def test_no_credit_when_no_label_in_tag(self):
+        # If the tag has no label, the cross-field credit can't apply.
+        s = _score(
+            tag_artist="Unknown Artist",
+            tag_label=None,
+            result_artist="Hostom",
+        )
+        # Standard mismatch behavior — artist scores 0
+        assert s < 80.0
+
+    def test_no_credit_when_result_artist_unrelated_to_label(self):
+        # If result.artist doesn't match tag.label, no credit applies.
+        s = _score(
+            tag_artist="Unknown Artist",
+            tag_label="Hostom",
+            result_artist="Some Other Artist",
+            result_label="Hostom",
+        )
+        # Standard mismatch behavior — no cross-field credit applies.
+        # "Some Other Artist" vs "Unknown Artist" has an incidental token
+        # overlap on "Artist" (~0.33), and the cross-field check against
+        # "Hostom" yields 0, so the artist field only gets its natural
+        # weak score — well below the 100 a credited match would produce.
+        assert s < 90.0
+
+    def test_credit_does_not_apply_when_artist_match_strong(self):
+        # When the standard artist match is already > 0.5, cross-field
+        # check is skipped (this case: tag.artist == "Hostom Records" and
+        # result.artist == "Hostom" — they match strongly enough on their own).
+        s_normal = _score(
+            tag_artist="Hostom Records",
+            tag_label="Hostom",
+            result_artist="Hostom",
+        )
+        # The standard fuzzy artist match should kick in here
+        assert s_normal > 50.0

@@ -63,8 +63,28 @@ def score_result(result: IdentData, tag: TagData) -> float:
           on the principle that a provider returning `None` for a known-good
           label is less trustworthy than one that returns the matching label.
         - If no tag fields are populated at all, returns a neutral 50.0.
+        - Cross-field credit: when the standard artist comparison would score
+          very low (< 0.5), the result's artist field is checked against the
+          tag's label to detect "label-as-artist" releases (common for
+          anonymous techno/dub on small labels). If the result's artist
+          fuzzy-matches the tag's label with score > 0.7, the artist field is
+          credited at 60% of the label-match score instead of zero.
     """
     weights = _get_weights(tag.is_va)
+
+    # Compute the artist match score with cross-field "label-as-artist" credit.
+    # Some metadata sources put the label in the artist field for anonymous
+    # releases (common in underground techno/dub). When the standard artist
+    # comparison fails but the result's artist looks like the tag's label,
+    # give partial credit instead of treating it as a hard mismatch.
+    artist_match_score = 0.0
+    if tag.artist and result.artist:
+        artist_match_score = _fuzzy_artist(str(tag.artist), str(result.artist))
+        if artist_match_score < 0.5 and tag.label:
+            label_as_artist = _fuzzy_artist(str(tag.label), str(result.artist))
+            if label_as_artist > 0.7:
+                artist_match_score = max(artist_match_score, 0.6 * label_as_artist)
+
     total_weight = 0.0
     weighted_score = 0.0
 
@@ -87,7 +107,7 @@ def score_result(result: IdentData, tag: TagData) -> float:
         if field == "album":
             weighted_score += weight * _fuzzy_album(str(tag_val), str(result_val))
         elif field == "artist":
-            weighted_score += weight * _fuzzy_artist(str(tag_val), str(result_val))
+            weighted_score += weight * artist_match_score
         elif field == "year":
             weighted_score += weight * _match_year(tag_val, result_val)
         elif field == "label":
