@@ -16,6 +16,8 @@ A simple tool to take the work out of uploading on Gazelle-based trackers. It ge
 - **Lossy Master Report Generation** – Supports lossy master reports during upload.
 - **Metadata Retrieval** – Fetches metadata from:
   - Apple Music, Bandcamp, Beatport, Deezer, Discogs, MusicBrainz, Qobuz, Tidal.
+  - Uses structured provider queries (artist/album/year/label/catno) where supported, with free-text fallback.
+  - Results are scored against local tag data and filtered by a configurable `min_score_threshold` (see `[upload.search]` in the config).
 - **File Management** –  
   - Retags and renames files to standard formats (based on metadata).
   - Checks file integrity and sanitizes if needed.  

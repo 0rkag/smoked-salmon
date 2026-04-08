@@ -166,6 +166,12 @@ session = 'get-from-site-cookie'
 # limit = 3
 # excluded_labels = ["edm comps"]
 # blacklisted_genres = ["Soundtrack", "Asian Music"]
+# # Minimum score (0-100) for a search result to be shown. Results from metadata
+# # providers are scored against tag data (album, artist, year, label, catno,
+# # track count, source). Lower = more permissive, higher = stricter.
+# min_score_threshold = 40
+# # If true, disables the score threshold entirely and shows every result.
+# show_all_results = false
 
 # [upload.formatting]
 # # templates for folder and file naming
