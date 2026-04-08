@@ -32,6 +32,14 @@ def _detect_va(main_artists: list[str]) -> bool:
         return True
     if any("various" in a.lower() for a in main_artists):
         return True
+    # NOTE: Intentionally NOT reusing `cfg.upload.formatting.various_artist_threshold`
+    # (default 4). That config governs how releases are *displayed/formatted*
+    # (collapse many artists into "Various Artists" in filenames/tags), which
+    # is a separate concern from how metadata *search* is performed. Using 4
+    # here would misclassify 4- and 5-artist collaborations (quartets, posse
+    # cuts, chamber ensembles) as compilations and route them through VA-style
+    # provider queries, which drops the artist weight in scoring and hurts
+    # match quality. 6 is a conservative floor for "this is probably a comp."
     return len(main_artists) >= 6
 
 
