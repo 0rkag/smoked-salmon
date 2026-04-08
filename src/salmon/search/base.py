@@ -52,7 +52,7 @@ class SearchMixin(ABC):
         Providers should use structured params where their API supports them,
         falling back to searchstr for free-text search.
 
-        Supported kwargs: artist, album, year, label, catno, release_type, is_va
+        Supported kwargs: artist, album, year, label, catno, is_va
         """
         pass
 
