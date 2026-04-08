@@ -67,7 +67,6 @@ class SearchMixin(ABC):
         searchstr: str,
         limit: int,
         **kwargs,
-<<<<<<< HEAD
     ) -> tuple[str, dict[Any, SearchResult]]:
         """Search the metadata site for releases.
 
@@ -78,15 +77,6 @@ class SearchMixin(ABC):
         Supported kwargs: artist, album, year, label, catno, is_va
 
         Returns: `(provider_name, {release_id: SearchResult})`.
-=======
-    ) -> tuple[str, dict[str, Any]]:
-        """Search the metadata site for releases.
-
-        Providers should use structured params where their API supports them,
-        falling back to searchstr for free-text search.
-
-        Supported kwargs: artist, album, year, label, catno, release_type, is_va
->>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
         """
         pass
 

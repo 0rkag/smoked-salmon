@@ -48,17 +48,10 @@ class Searcher(BandcampBase, SearchMixin):
                     year_match = re.search(r"(\d{4})", date)
                     year = year_match[1] if year_match else None
 
-<<<<<<< HEAD
                     releases[(rls_url, release_type, rls_id)] = SearchResult(
                         ident=IdentData(artists, title, year, track_count, "WEB"),
                         formatted=self.format_result(artists, title, f"{year} {releaser}", track_count=track_count),
                         fallback_level=FallbackLevel.FREE_TEXT,
-=======
-                    releases[(rls_url, release_type, rls_id)] = (
-                        IdentData(artists, title, year, track_count, "WEB"),
-                        self.format_result(artists, title, f"{year} {releaser}", track_count=track_count),
-                        1,
->>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
                     )
 
                     if len(releases) == limit:

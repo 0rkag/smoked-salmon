@@ -14,13 +14,10 @@ COUNTRIES = [cc.upper() for cc in cfg.metadata.tidal.regions]
 
 
 class Searcher(TidalBase, SearchMixin):
-<<<<<<< HEAD
     @staticmethod
     def is_active() -> bool:
         return bool(cfg.metadata.tidal.token)
 
-=======
->>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
     async def search_releases(self, searchstr, limit, **kwargs):
         """
         Run a search of Tidal albums.
@@ -98,11 +95,7 @@ class Searcher(TidalBase, SearchMixin):
                             explicit=explicit,
                             clean=not explicit,
                         ),
-<<<<<<< HEAD
                         fallback_level=FallbackLevel.FREE_TEXT,
-=======
-                        1,
->>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
                     ),
                 )
             )

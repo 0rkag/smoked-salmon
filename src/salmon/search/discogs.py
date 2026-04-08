@@ -16,13 +16,10 @@ SOURCES = {
 
 
 class Searcher(DiscogsBase, SearchMixin):
-<<<<<<< HEAD
     @staticmethod
     def is_active() -> bool:
         return bool(cfg.metadata.discogs_token)
 
-=======
->>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
     async def search_releases(self, searchstr, limit, **kwargs):
         releases = {}
         artist = kwargs.get("artist")
@@ -30,10 +27,6 @@ class Searcher(DiscogsBase, SearchMixin):
         year = kwargs.get("year")
         label = kwargs.get("label")
         catno = kwargs.get("catno")
-<<<<<<< HEAD
-=======
-        is_va = kwargs.get("is_va", False)
->>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
 
         results, fallback_level = await self._structured_search(
             searchstr,
@@ -43,10 +36,6 @@ class Searcher(DiscogsBase, SearchMixin):
             year=year,
             label=label,
             catno=catno,
-<<<<<<< HEAD
-=======
-            is_va=is_va,
->>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
         )
 
         for rls in results:
@@ -55,11 +44,8 @@ class Searcher(DiscogsBase, SearchMixin):
             source = parse_source(rls["format"])
             ed_title = ", ".join(set(rls["format"]))
 
-<<<<<<< HEAD
             rls_label = None
             rls_catno = rls.get("catno") or None
-=======
->>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
             edition = f"{rls_year} {source}"
             if rls["label"] and rls["label"][0] != "Not On Label":
                 rls_label = rls["label"][0]
@@ -70,36 +56,22 @@ class Searcher(DiscogsBase, SearchMixin):
             release_in_user_collection = rls["user_data"]["in_collection"]
             collection_text = click.style("IN COLLECTION", bg="red", bold=True) if release_in_user_collection else None
 
-<<<<<<< HEAD
             releases[rls["id"]] = SearchResult(
                 ident=IdentData(artists, title, rls_year, None, source or "", label=rls_label, catno=rls_catno),
                 formatted=self.format_result(
-=======
-            releases[rls["id"]] = (
-                IdentData(artists, title, rls_year, None, source or ""),
-                self.format_result(
->>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
                     artists,
                     title,
                     edition,
                     ed_title=ed_title,
                     additional_info=collection_text,
                 ),
-<<<<<<< HEAD
                 fallback_level=fallback_level,
-=======
-                fallback_level,
->>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
             )
             if len(releases) == limit:
                 break
         return "Discogs", releases
 
-<<<<<<< HEAD
     async def _structured_search(self, searchstr, limit, *, artist, album, year, label, catno):
-=======
-    async def _structured_search(self, searchstr, limit, *, artist, album, year, label, catno, is_va):
->>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
         """Try structured params with fallback chain."""
         chains = self._build_fallback_chain(
             searchstr,
@@ -108,21 +80,14 @@ class Searcher(DiscogsBase, SearchMixin):
             year=year,
             label=label,
             catno=catno,
-<<<<<<< HEAD
         )
         for params, level in chains:
-=======
-            is_va=is_va,
-        )
-        for level, params in enumerate(chains):
->>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
             resp = await self.get_json(
                 "/database/search",
                 params={**params, "type": "release", "perpage": 50},
             )
             if resp.get("results"):
                 return resp["results"][: limit * 2], level
-<<<<<<< HEAD
         return [], FallbackLevel.LOOSE
 
     @staticmethod
@@ -147,31 +112,12 @@ class Searcher(DiscogsBase, SearchMixin):
         if has_real_artist and album:
             if year and label and catno:
                 chains.append((
-=======
-        return [], len(chains) - 1
-
-    @staticmethod
-    def _build_fallback_chain(searchstr, *, artist, album, year, label, catno, is_va):
-        """Build a list of param dicts from most specific to least."""
-        chains = []
-        if is_va:
-            if album and label and catno:
-                chains.append({"release_title": album, "label": label, "catno": catno})
-            if album and label:
-                chains.append({"release_title": album, "label": label})
-            if album:
-                chains.append({"release_title": album})
-        else:
-            if artist and album and year and label and catno:
-                chains.append(
->>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
                     {
                         "artist": artist,
                         "release_title": album,
                         "year": str(year),
                         "label": label,
                         "catno": catno,
-<<<<<<< HEAD
                     },
                     FallbackLevel.STRUCTURED,
                 ))
@@ -227,21 +173,6 @@ class Searcher(DiscogsBase, SearchMixin):
         if normalized != searchstr:
             chains.append(({"q": normalized}, FallbackLevel.LOOSE))
 
-=======
-                    }
-                )
-            if artist and album and year:
-                chains.append(
-                    {
-                        "artist": artist,
-                        "release_title": album,
-                        "year": str(year),
-                    }
-                )
-            if artist and album:
-                chains.append({"artist": artist, "release_title": album})
-        chains.append({"q": searchstr})
->>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
         return chains
 
 

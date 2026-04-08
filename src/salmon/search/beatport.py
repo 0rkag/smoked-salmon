@@ -14,7 +14,6 @@ from salmon.sources.beatport import TokenStorage
 
 
 class Searcher(BeatportBase, SearchMixin):
-<<<<<<< HEAD
     async def search_releases_api(self, token_storage: TokenStorage, searchstr: str, limit: int) -> tuple[str, dict]:
         params = {"q": searchstr, "type": "releases"}
         resp = await self.get_json("/catalog/search/", params=params, headers=token_storage.get_auth_header())
@@ -40,9 +39,10 @@ class Searcher(BeatportBase, SearchMixin):
                     edition += " " + catno
 
                 if label.lower() not in cfg.upload.search.excluded_labels:
-                    releases[rls_id] = (
-                        IdentData(artists, title, year, track_count, "WEB"),
-                        self.format_result(artists, title, edition, track_count, explicit=explicit),
+                    releases[rls_id] = SearchResult(
+                        ident=IdentData(artists, title, year, track_count, "WEB"),
+                        formatted=self.format_result(artists, title, edition, track_count, explicit=explicit),
+                        fallback_level=FallbackLevel.FREE_TEXT,
                     )
             except (KeyError, IndexError) as e:
                 raise ScrapeError("Failed to parse search result item") from e
@@ -53,9 +53,6 @@ class Searcher(BeatportBase, SearchMixin):
         return "Beatport", releases
 
     async def search_releases_scraping(self, searchstr: str, limit: int) -> tuple[str, dict]:
-=======
-    async def search_releases(self, searchstr: str, limit: int, **kwargs) -> tuple[str, dict]:
->>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
         releases: dict[Any, Any] = {}
         soup = await self.fetch_page(self.search_url, params={"q": searchstr})
         try:
@@ -81,17 +78,10 @@ class Searcher(BeatportBase, SearchMixin):
                     label = result["label"]["label_name"]
 
                     if label.lower() not in cfg.upload.search.excluded_labels:
-<<<<<<< HEAD
                         releases[rls_id] = SearchResult(
                             ident=IdentData(artists, title, None, None, "WEB", label=label),
                             formatted=self.format_result(artists, title, label),
                             fallback_level=FallbackLevel.FREE_TEXT,
-=======
-                        releases[rls_id] = (
-                            IdentData(artists, title, None, None, "WEB"),
-                            self.format_result(artists, title, label),
-                            1,
->>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
                         )
                 except (KeyError, IndexError) as e:
                     raise ScrapeError("Failed to parse search result item") from e

@@ -39,73 +39,44 @@ class Searcher(DeezerBase, SearchMixin):
         )
         resp = await self.get_json("/search/album", params={"q": query})
         for rls in resp.get("data", []):
-<<<<<<< HEAD
             releases[rls["id"]] = SearchResult(
                 ident=IdentData(
-=======
-            releases[rls["id"]] = (
-                IdentData(
->>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
                     rls["artist"]["name"],
                     rls["title"],
                     None,
                     rls["nb_tracks"],
                     "WEB",
                 ),
-<<<<<<< HEAD
                 formatted=self.format_result(
-=======
-                self.format_result(
->>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
                     rls["artist"]["name"],
                     rls["title"],
                     None,
                     track_count=rls["nb_tracks"],
                 ),
-<<<<<<< HEAD
                 fallback_level=fallback_level,
-=======
-                fallback_level,
->>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
             )
             if len(releases) == limit:
                 break
 
         # If structured query returned nothing and we haven't tried free-text yet
-<<<<<<< HEAD
         if not releases and fallback_level == FallbackLevel.STRUCTURED:
             resp = await self.get_json("/search/album", params={"q": searchstr})
             for rls in resp.get("data", []):
                 releases[rls["id"]] = SearchResult(
                     ident=IdentData(
-=======
-        if not releases and fallback_level == 0:
-            resp = await self.get_json("/search/album", params={"q": searchstr})
-            for rls in resp.get("data", []):
-                releases[rls["id"]] = (
-                    IdentData(
->>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
                         rls["artist"]["name"],
                         rls["title"],
                         None,
                         rls["nb_tracks"],
                         "WEB",
                     ),
-<<<<<<< HEAD
                     formatted=self.format_result(
-=======
-                    self.format_result(
->>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
                         rls["artist"]["name"],
                         rls["title"],
                         None,
                         track_count=rls["nb_tracks"],
                     ),
-<<<<<<< HEAD
                     fallback_level=FallbackLevel.FREE_TEXT,
-=======
-                    1,
->>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
                 )
                 if len(releases) == limit:
                     break
@@ -114,7 +85,6 @@ class Searcher(DeezerBase, SearchMixin):
 
     @staticmethod
     def _build_query_with_fallback(searchstr, *, artist, album, label, is_va):
-<<<<<<< HEAD
         """Build advanced query syntax. Returns (query, FallbackLevel)."""
         parts = []
         if not is_va and artist:
@@ -126,19 +96,6 @@ class Searcher(DeezerBase, SearchMixin):
         if parts:
             return " ".join(parts), FallbackLevel.STRUCTURED
         return searchstr, FallbackLevel.FREE_TEXT
-=======
-        """Build advanced query syntax. Returns (query, fallback_level)."""
-        parts = []
-        if not is_va and artist:
-            parts.append(f'artist:"{artist}"')
-        if album:
-            parts.append(f'album:"{album}"')
-        if label:
-            parts.append(f'label:"{label}"')
-        if parts:
-            return " ".join(parts), 0
-        return searchstr, 1
->>>>>>> faa9482 (feat: improve metadata search with structured queries and result scoring)
 
     async def get_artist_releases(self, artiststr):
         """
