@@ -12,6 +12,15 @@ from salmon.search.scoring import FallbackLevel
 from salmon.sources import DeezerBase
 
 
+def _q(value: str) -> str:
+    """Escape a value for Deezer's `field:"value"` advanced query syntax.
+
+    Deezer does not document an escape mechanism for inner quotes, so we
+    strip them rather than attempting to escape.
+    """
+    return value.replace('"', "").strip()
+
+
 class Searcher(DeezerBase, SearchMixin):
     async def search_releases(self, searchstr, limit, **kwargs):
         artist = kwargs.get("artist")
@@ -75,14 +84,14 @@ class Searcher(DeezerBase, SearchMixin):
 
     @staticmethod
     def _build_query_with_fallback(searchstr, *, artist, album, label, is_va):
-        """Build advanced query syntax. Returns (query, fallback_level)."""
+        """Build advanced query syntax. Returns (query, FallbackLevel)."""
         parts = []
         if not is_va and artist:
-            parts.append(f'artist:"{artist}"')
+            parts.append(f'artist:"{_q(artist)}"')
         if album:
-            parts.append(f'album:"{album}"')
+            parts.append(f'album:"{_q(album)}"')
         if label:
-            parts.append(f'label:"{label}"')
+            parts.append(f'label:"{_q(label)}"')
         if parts:
             return " ".join(parts), FallbackLevel.STRUCTURED
         return searchstr, FallbackLevel.FREE_TEXT
