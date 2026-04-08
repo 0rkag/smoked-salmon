@@ -13,6 +13,8 @@ class IdentData(msgspec.Struct, frozen=True):
     year: int | str | None
     track_count: int | None
     source: str
+    label: str | None = None
+    catno: str | None = None
 
 
 class ArtistRlsData(msgspec.Struct, frozen=True):
@@ -40,6 +42,11 @@ class LabelRlsData(msgspec.Struct, frozen=True):
 
 
 class SearchMixin(ABC):
+    @staticmethod
+    def is_active() -> bool:
+        """Whether this source has the credentials/config needed to search."""
+        return True
+
     @abstractmethod
     async def search_releases(
         self,
