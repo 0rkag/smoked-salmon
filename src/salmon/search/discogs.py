@@ -5,7 +5,7 @@ from unidecode import unidecode
 
 from salmon import cfg
 from salmon.search.base import IdentData, SearchMixin
-from salmon.search.scoring import FallbackLevel
+from salmon.search.scoring import FallbackLevel, strip_album_noise
 from salmon.sources import DiscogsBase
 
 SOURCES = {
@@ -161,16 +161,30 @@ def sanitize_artist_name(name):
 
 
 def _clean_artist(artist):
-    """Strip disambiguation suffixes and normalize for search."""
-    # Remove parenthetical disambiguations like (AU), (5), (UK), etc.
-    artist = re.sub(r"\s*\([^)]{1,5}\)\s*$", "", artist)
+    """Strip disambiguation suffixes and normalize for search.
+
+    Only strips parentheticals that look like disambiguators: numeric
+    (e.g. "(2)") or short all-caps country codes (e.g. "(UK)", "(USA)").
+    Preserves legitimate parentheticals like "(Live)", "(Acoustic)".
+    """
+    artist = re.sub(r"\s*\((?:\d+|[A-Z]{2,3})\)\s*$", "", artist)
     return _normalize_accents(artist).strip()
 
 
 def _clean_album(album):
-    """Strip EP/Single suffixes and normalize for search."""
+    """Normalize album title for Discogs search.
+
+    Strips EP/Single markers in trailing `- EP`, ` EP`, `(EP)`, `[Single]`,
+    etc. forms, shares the Remastered/Deluxe/feat. noise stripper with
+    the scoring module, and transliterates accents.
+    """
+    # Strip bracketed/parenthetical EP/Single markers anywhere
+    album = re.sub(r"\s*[\[\(]\s*(EP|Single)\s*[\]\)]\s*", " ", album, flags=re.IGNORECASE)
+    # Strip trailing dash/space EP/Single
     album = re.sub(r"\s*[-–—]\s*(EP|Single)\s*$", "", album, flags=re.IGNORECASE)
     album = re.sub(r"\s+(EP|Single)\s*$", "", album, flags=re.IGNORECASE)
+    # Shared noise stripping (Remastered, Deluxe, feat., etc.)
+    album = strip_album_noise(album)
     return _normalize_accents(album).strip()
 
 

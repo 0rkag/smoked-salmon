@@ -4,8 +4,8 @@ from salmon.search.scoring import (
     _match_catno,
     _match_track_count,
     _match_year,
-    _strip_album_noise,
     score_result,
+    strip_album_noise,
 )
 
 
@@ -173,13 +173,13 @@ class TestMatchTrackCount:
 
 class TestStripAlbumNoise:
     def test_strips_feat(self):
-        assert "feat" not in _strip_album_noise("Song (feat. Other)").lower()
+        assert "feat" not in strip_album_noise("Song (feat. Other)").lower()
 
     def test_strips_remastered(self):
-        assert "remastered" not in _strip_album_noise("Album (Remastered)").lower()
+        assert "remastered" not in strip_album_noise("Album (Remastered)").lower()
 
     def test_preserves_clean_title(self):
-        assert _strip_album_noise("Clean Title") == "Clean Title"
+        assert strip_album_noise("Clean Title") == "Clean Title"
 
 
 class TestScoreWeightSemantics:
