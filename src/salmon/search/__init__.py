@@ -19,7 +19,7 @@ from salmon.search import (
     tidal,
 )
 from salmon.search.base import SearchResult
-from salmon.search.scoring import score_result
+from salmon.search.scoring import TagData, score_result
 
 SEARCHSOURCES = {
     "Bandcamp": bandcamp,
@@ -136,6 +136,17 @@ async def run_metasearch(
         "is_va": is_va,
     }
 
+    tag = TagData(
+        artist=artist_str,
+        album=album,
+        year=int(year) if year else None,
+        track_count=track_count,
+        source=source_medium,
+        label=label,
+        catno=catno,
+        is_va=is_va,
+    )
+
     results: dict[str, Any] = {name: None for name in inactive_sources}
     tasks = [
         handle_scrape_errors(s.Searcher().search_releases(search, limit, **structured_kwargs))
@@ -146,17 +157,7 @@ async def run_metasearch(
 
     for source, result in [r or (None, None) for r in task_responses]:
         if result and apply_filter:
-            result = _score_and_filter_results(
-                result,
-                tag_artist=artist_str,
-                tag_album=album,
-                tag_year=year,
-                tag_track_count=track_count,
-                tag_source=source_medium,
-                tag_label=label,
-                tag_catno=catno,
-                is_va=is_va,
-            )
+            result = _score_and_filter_results(result, tag)
         if source:
             results[source] = result
     return results
@@ -164,42 +165,16 @@ async def run_metasearch(
 
 def _score_and_filter_results(
     results: dict[Any, SearchResult],
-    *,
-    tag_artist: str | None,
-    tag_album: str | None,
-    tag_year: int | str | None,
-    tag_track_count: int | None,
-    tag_source: str | None,
-    tag_label: str | None,
-    tag_catno: str | None,
-    is_va: bool,
-) -> dict[str, Any]:
+    tag: TagData,
+) -> dict[Any, tuple[Any, str]]:
     """Score results against tag metadata and filter by threshold."""
     scored: list[tuple[Any, Any, float]] = []
 
     for rls_id, result in results.items():
         ident_data = result.ident
         formatted_str = result.formatted
-        fallback_level = result.fallback_level
 
-        s = score_result(
-            result_artist=ident_data.artist,
-            result_album=ident_data.album,
-            result_year=ident_data.year,
-            result_track_count=ident_data.track_count,
-            result_source=ident_data.source,
-            result_label=ident_data.label,
-            result_catno=ident_data.catno,
-            tag_artist=tag_artist,
-            tag_album=tag_album,
-            tag_year=tag_year,
-            tag_track_count=tag_track_count,
-            tag_source=tag_source,
-            tag_label=tag_label,
-            tag_catno=tag_catno,
-            is_va=is_va,
-            fallback_level=fallback_level,
-        )
+        s = score_result(ident_data, tag)
         scored.append((rls_id, (ident_data, formatted_str), s))
 
     # Sort by score descending

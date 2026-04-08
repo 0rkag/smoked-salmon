@@ -1,4 +1,6 @@
+from salmon.search.base import IdentData
 from salmon.search.scoring import (
+    TagData,
     _fuzzy_album,
     _fuzzy_artist,
     _match_catno,
@@ -10,25 +12,43 @@ from salmon.search.scoring import (
 
 
 def _score(**overrides):
-    """Helper: perfect match with selective overrides."""
+    """Helper: perfect match with selective overrides.
+
+    Overrides may use the old `result_*`/`tag_*` keyword style for back-compat
+    with existing tests.
+    """
     defaults = dict(
-        result_artist="The Artist",
-        result_album="The Album",
-        result_year=2020,
-        result_track_count=10,
-        result_source="WEB",
-        result_label="Cool Label",
-        result_catno="CL001",
-        tag_artist="The Artist",
-        tag_album="The Album",
-        tag_year=2020,
-        tag_track_count=10,
-        tag_source="WEB",
-        tag_label="Cool Label",
-        tag_catno="CL001",
+        result_artist="The Artist", result_album="The Album",
+        result_year=2020, result_track_count=10, result_source="WEB",
+        result_label="Cool Label", result_catno="CL001",
+        tag_artist="The Artist", tag_album="The Album",
+        tag_year=2020, tag_track_count=10, tag_source="WEB",
+        tag_label="Cool Label", tag_catno="CL001",
+        is_va=False,
     )
+    # Discard unsupported overrides (fallback_level was removed)
+    overrides.pop("fallback_level", None)
     defaults.update(overrides)
-    return score_result(**defaults)
+    result = IdentData(
+        artist=defaults["result_artist"],
+        album=defaults["result_album"],
+        year=defaults["result_year"],
+        track_count=defaults["result_track_count"],
+        source=defaults["result_source"] or "",
+        label=defaults["result_label"],
+        catno=defaults["result_catno"],
+    )
+    tag = TagData(
+        artist=defaults["tag_artist"],
+        album=defaults["tag_album"],
+        year=defaults["tag_year"],
+        track_count=defaults["tag_track_count"],
+        source=defaults["tag_source"],
+        label=defaults["tag_label"],
+        catno=defaults["tag_catno"],
+        is_va=defaults["is_va"],
+    )
+    return score_result(result, tag)
 
 
 class TestScoreResult:
@@ -37,9 +57,8 @@ class TestScoreResult:
 
     def test_no_tag_data_returns_neutral_50(self):
         s = score_result(
-            result_artist="x", result_album="y", result_year=None,
-            result_track_count=None, result_source=None,
-            result_label=None, result_catno=None,
+            IdentData(artist="x", album="y", year=None, track_count=None, source=""),
+            TagData(),
         )
         assert s == 50.0
 
@@ -68,11 +87,6 @@ class TestScoreResult:
         s = _score(result_label=None)
         assert s < 100
 
-    def test_fallback_level_bonus_saturates(self):
-        base = _score(fallback_level=0)
-        deep = _score(fallback_level=5)
-        assert base >= deep
-
     def test_accent_normalization_album(self):
         s = _score(result_album="Café", tag_album="Cafe")
         assert s == 100.0
@@ -94,10 +108,8 @@ class TestScoreResult:
 
     def test_empty_strings_are_treated_as_missing(self):
         s = score_result(
-            result_artist="A", result_album="B", result_year=None,
-            result_track_count=None, result_source=None,
-            result_label=None, result_catno=None,
-            tag_artist="", tag_album="",
+            IdentData(artist="A", album="B", year=None, track_count=None, source=""),
+            TagData(artist="", album=""),
         )
         assert s == 50.0
 
@@ -186,11 +198,11 @@ class TestScoreWeightSemantics:
     def test_sparse_result_penalized(self):
         """Tag has year + label, result has neither → weight counted, score 0."""
         s = score_result(
-            result_artist="A", result_album="B",
-            result_year=None, result_track_count=None, result_source=None,
-            result_label=None, result_catno=None,
-            tag_artist="A", tag_album="B",
-            tag_year=2020, tag_label="Foo",
+            IdentData(
+                artist="A", album="B", year=None, track_count=None,
+                source="", label=None, catno=None,
+            ),
+            TagData(artist="A", album="B", year=2020, label="Foo"),
         )
         # album(25) + artist(20) + year(10, 0 score) + label(10, 0 score)
         # = 45/65 * 100 ≈ 69.2
@@ -203,15 +215,3 @@ class TestFallbackLevelEnum:
         assert FallbackLevel.STRUCTURED < FallbackLevel.PARTIAL_STRUCTURED
         assert FallbackLevel.PARTIAL_STRUCTURED < FallbackLevel.FREE_TEXT
         assert FallbackLevel.FREE_TEXT < FallbackLevel.LOOSE
-
-    def test_enum_is_int_compatible(self):
-        from salmon.search.scoring import FallbackLevel
-        # Should accept in score_result without error
-        s = score_result(
-            result_artist="A", result_album="B", result_year=None,
-            result_track_count=None, result_source=None,
-            result_label=None, result_catno=None,
-            tag_artist="A", tag_album="B",
-            fallback_level=FallbackLevel.STRUCTURED,
-        )
-        assert 0 <= s <= 100
