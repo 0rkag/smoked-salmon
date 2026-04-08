@@ -84,71 +84,72 @@ class Searcher(DiscogsBase, SearchMixin):
             catno=catno,
             is_va=is_va,
         )
-        last_idx = len(chains) - 1
-        for level, params in enumerate(chains):
+        for params, level in chains:
             resp = await self.get_json(
                 "/database/search",
                 params={**params, "type": "release", "perpage": 50},
             )
             if resp.get("results"):
-                return resp["results"][: limit * 2], _map_fallback_level(level, last_idx)
+                return resp["results"][: limit * 2], level
         return [], FallbackLevel.LOOSE
 
     @staticmethod
     def _build_fallback_chain(searchstr, *, artist, album, year, label, catno, is_va):
-        """Build a list of param dicts from most specific to least."""
-        # Clean inputs for structured search
+        """Build (params, FallbackLevel) pairs from most structured to loosest."""
         artist = _clean_artist(artist) if artist else None
         album = _clean_album(album) if album else None
 
-        chains = []
+        chains: list[tuple[dict, FallbackLevel]] = []
         if is_va:
             if album and label and catno:
-                chains.append({"release_title": album, "label": label, "catno": catno})
+                chains.append((
+                    {"release_title": album, "label": label, "catno": catno},
+                    FallbackLevel.STRUCTURED,
+                ))
             if album and label:
-                chains.append({"release_title": album, "label": label})
+                chains.append((
+                    {"release_title": album, "label": label},
+                    FallbackLevel.PARTIAL_STRUCTURED,
+                ))
             if album:
-                chains.append({"release_title": album})
+                chains.append((
+                    {"release_title": album},
+                    FallbackLevel.PARTIAL_STRUCTURED,
+                ))
         else:
             if artist and album and year and label and catno:
-                chains.append(
+                chains.append((
                     {
                         "artist": artist,
                         "release_title": album,
                         "year": str(year),
                         "label": label,
                         "catno": catno,
-                    }
-                )
+                    },
+                    FallbackLevel.STRUCTURED,
+                ))
             if artist and album and year:
-                chains.append(
+                chains.append((
                     {
                         "artist": artist,
                         "release_title": album,
                         "year": str(year),
-                    }
-                )
+                    },
+                    FallbackLevel.PARTIAL_STRUCTURED,
+                ))
             if artist and album:
-                chains.append({"artist": artist, "release_title": album})
-        chains.append({"q": searchstr})
+                chains.append((
+                    {"artist": artist, "release_title": album},
+                    FallbackLevel.PARTIAL_STRUCTURED,
+                ))
+        chains.append(({"q": searchstr}, FallbackLevel.FREE_TEXT))
 
         # Also try with normalized accents as a final structured attempt
         normalized = _normalize_accents(searchstr)
         if normalized != searchstr:
-            chains.append({"q": normalized})
+            chains.append(({"q": normalized}, FallbackLevel.LOOSE))
 
         return chains
-
-
-def _map_fallback_level(idx: int, last_idx: int) -> FallbackLevel:
-    """Map chain index to FallbackLevel enum."""
-    if idx == 0:
-        return FallbackLevel.STRUCTURED
-    if idx == 1:
-        return FallbackLevel.PARTIAL_STRUCTURED
-    if idx == last_idx:
-        return FallbackLevel.LOOSE
-    return FallbackLevel.FREE_TEXT
 
 
 def sanitize_artist_name(name):
