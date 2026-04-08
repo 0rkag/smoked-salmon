@@ -9,6 +9,12 @@ from __future__ import annotations
 import re
 import unicodedata
 from enum import IntEnum
+from typing import TYPE_CHECKING
+
+import msgspec
+
+if TYPE_CHECKING:
+    from salmon.search.base import IdentData
 
 
 class FallbackLevel(IntEnum):
@@ -24,25 +30,25 @@ class FallbackLevel(IntEnum):
     LOOSE = 3  # Free text with extra normalization (e.g. accent-stripped)
 
 
-def score_result(
-    result_artist: str,
-    result_album: str,
-    result_year: int | str | None,
-    result_track_count: int | None,
-    result_source: str | None,
-    result_label: str | None,
-    result_catno: str | None,
-    *,
-    tag_artist: str | None = None,
-    tag_album: str | None = None,
-    tag_year: int | str | None = None,
-    tag_track_count: int | None = None,
-    tag_source: str | None = None,
-    tag_label: str | None = None,
-    tag_catno: str | None = None,
-    is_va: bool = False,
-    fallback_level: int = 0,
-) -> float:
+class TagData(msgspec.Struct, frozen=True):
+    """Tag data to score search results against.
+
+    Only populated fields participate in scoring. Unset fields don't affect
+    the denominator (they're neutral). See `score_result` for the full
+    scoring philosophy.
+    """
+
+    artist: str | None = None
+    album: str | None = None
+    year: int | str | None = None
+    track_count: int | None = None
+    source: str | None = None
+    label: str | None = None
+    catno: str | None = None
+    is_va: bool = False
+
+
+def score_result(result: IdentData, tag: TagData) -> float:
     """Score a search result against tag metadata.
 
     Returns a score from 0-100. Higher is better.
@@ -57,22 +63,19 @@ def score_result(
           on the principle that a provider returning `None` for a known-good
           label is less trustworthy than one that returns the matching label.
         - If no tag fields are populated at all, returns a neutral 50.0.
-        - `fallback_level`: 0 = structured match, 1+ = progressively looser.
-          Kept in the signature for future sort-tiebreaker use; does not
-          currently affect the returned score.
     """
-    weights = _get_weights(is_va)
+    weights = _get_weights(tag.is_va)
     total_weight = 0.0
     weighted_score = 0.0
 
     checks = [
-        ("album", tag_album, result_album, weights["album"]),
-        ("artist", tag_artist, result_artist, weights["artist"]),
-        ("year", tag_year, result_year, weights["year"]),
-        ("label", tag_label, result_label, weights["label"]),
-        ("catno", tag_catno, result_catno, weights["catno"]),
-        ("track_count", tag_track_count, result_track_count, weights["track_count"]),
-        ("source", tag_source, result_source, weights["source"]),
+        ("album", tag.album, result.album, weights["album"]),
+        ("artist", tag.artist, result.artist, weights["artist"]),
+        ("year", tag.year, result.year, weights["year"]),
+        ("label", tag.label, result.label, weights["label"]),
+        ("catno", tag.catno, result.catno, weights["catno"]),
+        ("track_count", tag.track_count, result.track_count, weights["track_count"]),
+        ("source", tag.source, result.source, weights["source"]),
     ]
 
     for field, tag_val, result_val, weight in checks:
