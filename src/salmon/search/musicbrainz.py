@@ -10,17 +10,6 @@ from salmon.search.scoring import FallbackLevel
 from salmon.sources import MusicBrainzBase
 
 
-def _map_fallback_level(idx: int, last_idx: int) -> FallbackLevel:
-    """Map chain index to FallbackLevel enum."""
-    if idx == 0:
-        return FallbackLevel.STRUCTURED
-    if idx == 1:
-        return FallbackLevel.PARTIAL_STRUCTURED
-    if idx == last_idx:
-        return FallbackLevel.LOOSE
-    return FallbackLevel.FREE_TEXT
-
-
 class Searcher(MusicBrainzBase, SearchMixin):
     async def search_releases(self, searchstr: str, limit: int, **kwargs) -> tuple[str, dict[str, Any]]:
         artist = kwargs.get("artist")
@@ -122,37 +111,53 @@ class Searcher(MusicBrainzBase, SearchMixin):
             release_type=release_type,
             is_va=is_va,
         )
-        last_idx = len(chains) - 1
-        for level, search_kwargs in enumerate(chains):
+        for search_kwargs, level in chains:
             result = await asyncio.to_thread(musicbrainzngs.search_releases, limit=limit, **search_kwargs)
             if result.get("release-list"):
-                return result, _map_fallback_level(level, last_idx)
-        return {"release-list": []}, FallbackLevel.LOOSE
+                return result, level
+        return {"release-list": []}, FallbackLevel.FREE_TEXT
 
     @staticmethod
     def _build_fallback_chain(searchstr, *, artist, album, year, label, catno, release_type, is_va):
-        chains = []
+        """Build (kwargs, FallbackLevel) pairs from most structured to loosest."""
+        chains: list[tuple[dict, FallbackLevel]] = []
         if is_va:
             if album and label and catno:
-                chains.append({"release": album, "label": label, "catno": catno})
+                chains.append((
+                    {"release": album, "label": label, "catno": catno},
+                    FallbackLevel.STRUCTURED,
+                ))
             if album and label:
-                chains.append({"release": album, "label": label})
+                chains.append((
+                    {"release": album, "label": label},
+                    FallbackLevel.PARTIAL_STRUCTURED,
+                ))
             if album:
-                chains.append({"release": album})
+                chains.append((
+                    {"release": album},
+                    FallbackLevel.PARTIAL_STRUCTURED,
+                ))
         else:
             if artist and album and year and label and catno:
-                chains.append(
+                chains.append((
                     {
                         "artist": artist,
                         "release": album,
                         "date": str(year),
                         "label": label,
                         "catno": catno,
-                    }
-                )
+                    },
+                    FallbackLevel.STRUCTURED,
+                ))
             if artist and album and year:
-                chains.append({"artist": artist, "release": album, "date": str(year)})
+                chains.append((
+                    {"artist": artist, "release": album, "date": str(year)},
+                    FallbackLevel.PARTIAL_STRUCTURED,
+                ))
             if artist and album:
-                chains.append({"artist": artist, "release": album})
-        chains.append({"query": searchstr})
+                chains.append((
+                    {"artist": artist, "release": album},
+                    FallbackLevel.PARTIAL_STRUCTURED,
+                ))
+        chains.append(({"query": searchstr}, FallbackLevel.FREE_TEXT))
         return chains
