@@ -7,6 +7,7 @@ from salmon.search.base import (
     IdentData,
     LabelRlsData,
     SearchMixin,
+    SearchResult,
 )
 from salmon.search.scoring import FallbackLevel
 from salmon.sources import DeezerBase
@@ -38,21 +39,21 @@ class Searcher(DeezerBase, SearchMixin):
         )
         resp = await self.get_json("/search/album", params={"q": query})
         for rls in resp.get("data", []):
-            releases[rls["id"]] = (
-                IdentData(
+            releases[rls["id"]] = SearchResult(
+                ident=IdentData(
                     rls["artist"]["name"],
                     rls["title"],
                     None,
                     rls["nb_tracks"],
                     "WEB",
                 ),
-                self.format_result(
+                formatted=self.format_result(
                     rls["artist"]["name"],
                     rls["title"],
                     None,
                     track_count=rls["nb_tracks"],
                 ),
-                fallback_level,
+                fallback_level=fallback_level,
             )
             if len(releases) == limit:
                 break
@@ -61,21 +62,21 @@ class Searcher(DeezerBase, SearchMixin):
         if not releases and fallback_level == FallbackLevel.STRUCTURED:
             resp = await self.get_json("/search/album", params={"q": searchstr})
             for rls in resp.get("data", []):
-                releases[rls["id"]] = (
-                    IdentData(
+                releases[rls["id"]] = SearchResult(
+                    ident=IdentData(
                         rls["artist"]["name"],
                         rls["title"],
                         None,
                         rls["nb_tracks"],
                         "WEB",
                     ),
-                    self.format_result(
+                    formatted=self.format_result(
                         rls["artist"]["name"],
                         rls["title"],
                         None,
                         track_count=rls["nb_tracks"],
                     ),
-                    FallbackLevel.FREE_TEXT,
+                    fallback_level=FallbackLevel.FREE_TEXT,
                 )
                 if len(releases) == limit:
                     break

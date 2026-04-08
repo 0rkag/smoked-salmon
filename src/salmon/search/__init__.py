@@ -18,6 +18,7 @@ from salmon.search import (
     qobuz,
     tidal,
 )
+from salmon.search.base import SearchResult
 from salmon.search.scoring import score_result
 
 SEARCHSOURCES = {
@@ -62,9 +63,9 @@ async def metas(searchstr: tuple[str, ...], track_count: int | None, limit: int)
         if releases:
             click.secho(f"\nResults from {source}:", fg="yellow", bold=True)
             for rls_id, release in releases.items():
-                rls_name = release[0].album
+                rls_name = release.ident.album
                 url = SEARCHSOURCES[source].Searcher.format_url(rls_id, rls_name)
-                click.echo(f"> {release[1]} {url}")
+                click.echo(f"> {release.formatted} {url}")
         elif source:
             if releases is None:
                 inactive_sources.append(source)
@@ -162,7 +163,7 @@ async def run_metasearch(
 
 
 def _score_and_filter_results(
-    results: dict[str, Any],
+    results: dict[Any, SearchResult],
     *,
     tag_artist: str | None,
     tag_album: str | None,
@@ -176,10 +177,10 @@ def _score_and_filter_results(
     """Score results against tag metadata and filter by threshold."""
     scored: list[tuple[Any, Any, float]] = []
 
-    for rls_id, result_tuple in results.items():
-        ident_data = result_tuple[0]
-        formatted_str = result_tuple[1]
-        fallback_level = result_tuple[2]
+    for rls_id, result in results.items():
+        ident_data = result.ident
+        formatted_str = result.formatted
+        fallback_level = result.fallback_level
 
         s = score_result(
             result_artist=ident_data.artist,

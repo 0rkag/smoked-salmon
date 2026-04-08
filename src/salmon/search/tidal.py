@@ -6,7 +6,7 @@ from itertools import chain, zip_longest
 from salmon import cfg
 from salmon.common import parse_copyright
 from salmon.errors import ScrapeError
-from salmon.search.base import ArtistRlsData, IdentData, SearchMixin
+from salmon.search.base import ArtistRlsData, IdentData, SearchMixin, SearchResult
 from salmon.search.scoring import FallbackLevel
 from salmon.sources import TidalBase
 
@@ -35,9 +35,9 @@ class Searcher(TidalBase, SearchMixin):
             for rank_result in rank:
                 if rank_result:
                     cc, rid, result = rank_result
-                    if rid not in found_ids and result[1][5:] not in identifiers:
+                    if rid not in found_ids and result.formatted[5:] not in identifiers:
                         found_ids.add(rid)
-                        identifiers.add(result[1][5:])
+                        identifiers.add(result.formatted[5:])
                         releases[(cc, rid)] = result
                 if len(releases) == limit:
                     break
@@ -84,9 +84,9 @@ class Searcher(TidalBase, SearchMixin):
                 (
                     country_code,
                     rls["id"],
-                    (
-                        IdentData(artists, title, year, track_count, "WEB"),
-                        self.format_result(
+                    SearchResult(
+                        ident=IdentData(artists, title, year, track_count, "WEB"),
+                        formatted=self.format_result(
                             artists,
                             title,
                             f"{year} {copyright}",
@@ -95,7 +95,7 @@ class Searcher(TidalBase, SearchMixin):
                             explicit=explicit,
                             clean=not explicit,
                         ),
-                        FallbackLevel.FREE_TEXT,
+                        fallback_level=FallbackLevel.FREE_TEXT,
                     ),
                 )
             )

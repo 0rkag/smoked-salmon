@@ -5,7 +5,7 @@ import musicbrainzngs
 
 from salmon import cfg
 from salmon.errors import ScrapeError
-from salmon.search.base import IdentData, SearchMixin
+from salmon.search.base import IdentData, SearchMixin, SearchResult
 from salmon.search.scoring import FallbackLevel
 from salmon.sources import MusicBrainzBase
 
@@ -73,8 +73,8 @@ class Searcher(MusicBrainzBase, SearchMixin):
                     edition += " " + rls_catno
 
                 if rls_label.lower() not in cfg.upload.search.excluded_labels:
-                    releases[rls["id"]] = (
-                        IdentData(
+                    releases[rls["id"]] = SearchResult(
+                        ident=IdentData(
                             artists,
                             rls["title"],
                             None,
@@ -83,14 +83,14 @@ class Searcher(MusicBrainzBase, SearchMixin):
                             label=rls_label or None,
                             catno=rls_catno or None,
                         ),
-                        self.format_result(
+                        formatted=self.format_result(
                             artists,
                             rls["title"],
                             edition,
                             ed_title=source,
                             track_count=track_count,
                         ),
-                        fallback_level,
+                        fallback_level=fallback_level,
                     )
             except (TypeError, IndexError) as e:
                 raise ScrapeError("Failed to parse scraped search results.") from e

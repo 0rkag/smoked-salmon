@@ -4,7 +4,7 @@ import msgspec
 
 from salmon import cfg
 from salmon.errors import ScrapeError
-from salmon.search.base import IdentData, SearchMixin
+from salmon.search.base import IdentData, SearchMixin, SearchResult
 from salmon.search.scoring import FallbackLevel
 from salmon.sources import BeatportBase
 
@@ -37,10 +37,10 @@ class Searcher(BeatportBase, SearchMixin):
                     label = result["label"]["label_name"]
 
                     if label.lower() not in cfg.upload.search.excluded_labels:
-                        releases[rls_id] = (
-                            IdentData(artists, title, None, None, "WEB", label=label),
-                            self.format_result(artists, title, label),
-                            FallbackLevel.FREE_TEXT,
+                        releases[rls_id] = SearchResult(
+                            ident=IdentData(artists, title, None, None, "WEB", label=label),
+                            formatted=self.format_result(artists, title, label),
+                            fallback_level=FallbackLevel.FREE_TEXT,
                         )
                 except (KeyError, IndexError) as e:
                     raise ScrapeError("Failed to parse search result item") from e

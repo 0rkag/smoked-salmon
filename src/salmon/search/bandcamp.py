@@ -2,7 +2,7 @@ import re
 from typing import Any
 
 from salmon.errors import ScrapeError
-from salmon.search.base import IdentData, SearchMixin
+from salmon.search.base import IdentData, SearchMixin, SearchResult
 from salmon.search.scoring import FallbackLevel
 from salmon.sources import BandcampBase
 
@@ -48,10 +48,10 @@ class Searcher(BandcampBase, SearchMixin):
                     year_match = re.search(r"(\d{4})", date)
                     year = year_match[1] if year_match else None
 
-                    releases[(rls_url, release_type, rls_id)] = (
-                        IdentData(artists, title, year, track_count, "WEB"),
-                        self.format_result(artists, title, f"{year} {releaser}", track_count=track_count),
-                        FallbackLevel.FREE_TEXT,
+                    releases[(rls_url, release_type, rls_id)] = SearchResult(
+                        ident=IdentData(artists, title, year, track_count, "WEB"),
+                        formatted=self.format_result(artists, title, f"{year} {releaser}", track_count=track_count),
+                        fallback_level=FallbackLevel.FREE_TEXT,
                     )
 
                     if len(releases) == limit:

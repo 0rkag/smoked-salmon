@@ -4,7 +4,7 @@ import asyncclick as click
 from unidecode import unidecode
 
 from salmon import cfg
-from salmon.search.base import IdentData, SearchMixin
+from salmon.search.base import IdentData, SearchMixin, SearchResult
 from salmon.search.scoring import FallbackLevel, strip_album_noise
 from salmon.sources import DiscogsBase
 
@@ -58,16 +58,16 @@ class Searcher(DiscogsBase, SearchMixin):
             release_in_user_collection = rls["user_data"]["in_collection"]
             collection_text = click.style("IN COLLECTION", bg="red", bold=True) if release_in_user_collection else None
 
-            releases[rls["id"]] = (
-                IdentData(artists, title, rls_year, None, source or "", label=rls_label, catno=rls_catno),
-                self.format_result(
+            releases[rls["id"]] = SearchResult(
+                ident=IdentData(artists, title, rls_year, None, source or "", label=rls_label, catno=rls_catno),
+                formatted=self.format_result(
                     artists,
                     title,
                     edition,
                     ed_title=ed_title,
                     additional_info=collection_text,
                 ),
-                fallback_level,
+                fallback_level=fallback_level,
             )
             if len(releases) == limit:
                 break
