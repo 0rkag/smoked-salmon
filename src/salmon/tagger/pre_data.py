@@ -48,7 +48,14 @@ def construct_rls_data(
     """Create the default release metadata from the tags."""
     metadata = deepcopy(EMPTY_METADATA)
     tag_track = next(iter(tags.values()))
-    metadata["title"], metadata["edition_title"] = parse_title(tag_track.album) if tag_track.album else (None, None)
+    album = tag_track.album
+    if not album and len(tags) == 1 and tag_track.title:
+        click.secho(
+            f"Warning: album tag is empty; using track title '{tag_track.title}' as fallback.",
+            fg="yellow",
+        )
+        album = tag_track.title
+    metadata["title"], metadata["edition_title"] = parse_title(album) if album else (None, None)
     if not overwrite:
         metadata["artists"] = construct_artists_li(tags)
         with contextlib.suppress(ValueError, IndexError, TypeError):
