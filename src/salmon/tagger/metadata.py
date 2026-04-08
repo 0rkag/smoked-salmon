@@ -16,6 +16,25 @@ from salmon.tagger.sources import METASOURCES
 from salmon.tagger.sources.base import generate_artists
 
 
+def _detect_va(main_artists: list[str]) -> bool:
+    """Classify a release as Various Artists.
+
+    Triggers on:
+      - Empty main-artist list.
+      - Any artist containing the substring "various" (case-insensitive).
+      - 6 or more distinct main artists (a sextet is more likely a
+        compilation than a single band).
+
+    A 4- or 5-artist collaboration (quartets, posse cuts, chamber music)
+    is deliberately NOT classified as VA.
+    """
+    if not main_artists:
+        return True
+    if any("various" in a.lower() for a in main_artists):
+        return True
+    return len(main_artists) >= 6
+
+
 async def get_metadata(path: str, tags: dict[str, Any], rls_data: dict[str, Any]) -> tuple[dict[str, Any], str | None]:
     """Get metadata pertaining to a release from various metadata sources.
 
@@ -39,7 +58,7 @@ async def get_metadata(path: str, tags: dict[str, Any], rls_data: dict[str, Any]
     album_title = rls_data["title"]
 
     # Detect VA releases
-    is_va = len(main_artists) > 3 or any("various" in a.lower() for a in main_artists) or len(main_artists) == 0
+    is_va = _detect_va(main_artists)
 
     # Extract year as int
     year = None
@@ -49,7 +68,7 @@ async def get_metadata(path: str, tags: dict[str, Any], rls_data: dict[str, Any]
 
     search_results = await run_metasearch(
         searchstrs,
-        filter=True,
+        apply_filter=True,
         track_count=len(tags),
         artists=artists_list,
         album=album_title,
