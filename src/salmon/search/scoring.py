@@ -125,7 +125,7 @@ def _normalize(s: str) -> str:
     return " ".join(s.lower().split())
 
 
-def _strip_album_noise(s: str) -> str:
+def strip_album_noise(s: str) -> str:
     s = re.sub(r"\(?[Ff]eat(\.|uring)? [^\)]+\)?", "", s)
     s = re.sub(
         r"\s*\(?(Remastered|Deluxe|Expanded|Anniversary|Limited|Special|Bonus|Collector'?s)\s*(Edition)?\)?",
@@ -137,8 +137,8 @@ def _strip_album_noise(s: str) -> str:
 
 
 def _fuzzy_album(a: str, b: str) -> float:
-    a = _normalize(_strip_album_noise(a))
-    b = _normalize(_strip_album_noise(b))
+    a = _normalize(strip_album_noise(a))
+    b = _normalize(strip_album_noise(b))
     if not a or not b:
         return 0.0
     if a == b:
