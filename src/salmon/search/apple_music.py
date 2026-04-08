@@ -5,7 +5,7 @@ import anyio
 
 from salmon import cfg
 from salmon.common import parse_copyright
-from salmon.search.base import IdentData, SearchMixin
+from salmon.search.base import IdentData, SearchMixin, SearchResult
 from salmon.search.scoring import FallbackLevel
 from salmon.sources import AppleMusicBase
 
@@ -71,9 +71,9 @@ class Searcher(AppleMusicBase, SearchMixin):
                 ident, _ = base_result
                 for lang in sf_langs[sf]:
                     _, (explicit, clean, edition) = base_result
-                    releases[(sf, lang, collection_id)] = (
-                        ident,
-                        self.format_result(
+                    releases[(sf, lang, collection_id)] = SearchResult(
+                        ident=ident,
+                        formatted=self.format_result(
                             ident.artist,
                             ident.album,
                             edition,
@@ -82,7 +82,7 @@ class Searcher(AppleMusicBase, SearchMixin):
                             explicit=explicit,
                             clean=clean,
                         ),
-                        FallbackLevel.FREE_TEXT,
+                        fallback_level=FallbackLevel.FREE_TEXT,
                     )
 
         return "Apple Music", releases

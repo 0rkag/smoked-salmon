@@ -4,6 +4,8 @@ from typing import Any
 import asyncclick as click
 import msgspec
 
+from salmon.search.scoring import FallbackLevel
+
 
 class IdentData(msgspec.Struct, frozen=True):
     """Data structure for release identification."""
@@ -41,6 +43,18 @@ class LabelRlsData(msgspec.Struct, frozen=True):
     explicit: bool
 
 
+class SearchResult(msgspec.Struct, frozen=True):
+    """A single search result returned by a metadata provider.
+
+    All `SearchMixin.search_releases` implementations return
+    `(provider_name, {release_id: SearchResult})`.
+    """
+
+    ident: IdentData
+    formatted: str
+    fallback_level: FallbackLevel
+
+
 class SearchMixin(ABC):
     @staticmethod
     def is_active() -> bool:
@@ -53,13 +67,16 @@ class SearchMixin(ABC):
         searchstr: str,
         limit: int,
         **kwargs,
-    ) -> tuple[str, dict[str, Any]]:
+    ) -> tuple[str, dict[Any, SearchResult]]:
         """Search the metadata site for releases.
 
-        Providers should use structured params where their API supports them,
-        falling back to searchstr for free-text search.
+        Providers that support structured search may use the kwargs to refine
+        their queries; providers limited to free-text should use `searchstr`
+        and set `fallback_level=FallbackLevel.FREE_TEXT` on results.
 
         Supported kwargs: artist, album, year, label, catno, is_va
+
+        Returns: `(provider_name, {release_id: SearchResult})`.
         """
         pass
 

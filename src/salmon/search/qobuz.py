@@ -6,6 +6,7 @@ from salmon.errors import ScrapeError
 from salmon.search.base import (
     IdentData,
     SearchMixin,
+    SearchResult,
 )
 from salmon.search.scoring import FallbackLevel
 from salmon.sources.qobuz import QobuzBase
@@ -53,8 +54,8 @@ class Searcher(QobuzBase, SearchMixin):
 
                     ed_title = ", ".join(format_details) if format_details else None
 
-                    releases[rls["id"]] = (
-                        IdentData(
+                    releases[rls["id"]] = SearchResult(
+                        ident=IdentData(
                             artists,
                             title,
                             year,
@@ -62,7 +63,7 @@ class Searcher(QobuzBase, SearchMixin):
                             "WEB",
                             label=rls_label,
                         ),
-                        self.format_result(
+                        formatted=self.format_result(
                             artists,
                             title,
                             edition,
@@ -70,7 +71,7 @@ class Searcher(QobuzBase, SearchMixin):
                             ed_title=ed_title,
                             explicit=rls.get("parental_warning", False),
                         ),
-                        FallbackLevel.FREE_TEXT,
+                        fallback_level=FallbackLevel.FREE_TEXT,
                     )
                 except (KeyError, TypeError, AttributeError):
                     # Skip individual release if it has missing/malformed data

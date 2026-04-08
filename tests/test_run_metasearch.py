@@ -3,7 +3,7 @@ from unittest.mock import patch
 import pytest
 
 from salmon.search import _derive_artist_str, run_metasearch
-from salmon.search.base import IdentData
+from salmon.search.base import IdentData, SearchResult
 from salmon.search.scoring import FallbackLevel
 
 
@@ -47,8 +47,8 @@ class FakeActiveSearcher:
     async def search_releases(self, searchstr, limit, **kwargs):
         FakeActiveSearcher.last_kwargs = kwargs
         return "FakeActive", {
-            "id1": (
-                IdentData(
+            "id1": SearchResult(
+                ident=IdentData(
                     artist="The Artist",
                     album="The Album",
                     year=2020,
@@ -57,8 +57,8 @@ class FakeActiveSearcher:
                     label="Cool Label",
                     catno="CL001",
                 ),
-                "formatted-string",
-                FallbackLevel.STRUCTURED,
+                formatted="formatted-string",
+                fallback_level=FallbackLevel.STRUCTURED,
             ),
         }
 
