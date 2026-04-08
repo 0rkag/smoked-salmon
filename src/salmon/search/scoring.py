@@ -26,9 +26,20 @@ def score_result(
     """Score a search result against tag metadata.
 
     Returns a score from 0-100. Higher is better.
-    fallback_level: 0 = structured match, 1+ = progressively looser.
-        Kept in the signature for future sort-tiebreaker use; does not
-        currently affect the returned score.
+
+    Scoring philosophy:
+        - Each field has a weight (see `_get_weights`). Weights sum to 100.
+        - A field only contributes to the denominator if the tag side has a
+          value for it. Fields the user didn't provide don't dilute the score.
+        - BUT: if the tag side has a value and the result side is missing it,
+          the weight is still counted — the result loses those points.
+          This deliberately penalizes providers that return sparse metadata,
+          on the principle that a provider returning `None` for a known-good
+          label is less trustworthy than one that returns the matching label.
+        - If no tag fields are populated at all, returns a neutral 50.0.
+        - `fallback_level`: 0 = structured match, 1+ = progressively looser.
+          Kept in the signature for future sort-tiebreaker use; does not
+          currently affect the returned score.
     """
     weights = _get_weights(is_va)
     total_weight = 0.0

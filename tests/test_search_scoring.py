@@ -180,3 +180,18 @@ class TestStripAlbumNoise:
 
     def test_preserves_clean_title(self):
         assert _strip_album_noise("Clean Title") == "Clean Title"
+
+
+class TestScoreWeightSemantics:
+    def test_sparse_result_penalized(self):
+        """Tag has year + label, result has neither → weight counted, score 0."""
+        s = score_result(
+            result_artist="A", result_album="B",
+            result_year=None, result_track_count=None, result_source=None,
+            result_label=None, result_catno=None,
+            tag_artist="A", tag_album="B",
+            tag_year=2020, tag_label="Foo",
+        )
+        # album(25) + artist(20) + year(10, 0 score) + label(10, 0 score)
+        # = 45/65 * 100 ≈ 69.2
+        assert 65 <= s <= 75
