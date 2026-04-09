@@ -12,6 +12,7 @@ from enum import IntEnum
 from typing import TYPE_CHECKING
 
 import msgspec
+from rapidfuzz import fuzz as _fuzz
 
 if TYPE_CHECKING:
     from salmon.search.base import IdentData
@@ -175,12 +176,6 @@ def _get_weights(is_va: bool) -> dict[str, float]:
     }
 
 
-def _normalize(s: str) -> str:
-    s = "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c))
-    s = re.sub(r"[^\w\s]", "", s)
-    return " ".join(s.lower().split())
-
-
 def strip_album_noise(s: str) -> str:
     s = re.sub(r"\(?[Ff]eat(\.|uring)? [^\)]+\)?", "", s)
     s = re.sub(
@@ -192,52 +187,132 @@ def strip_album_noise(s: str) -> str:
     return s.strip()
 
 
+# Roman numeral -> Arabic digit mapping for normalization. Covers the
+# most common release-title cases (I-X). Intentionally limited to avoid
+# false positives on real words like "II" (actually ambiguous -- but in
+# album-title contexts, "II" is nearly always a number).
+_ROMAN_NUMERALS = {
+    "i": "1",
+    "ii": "2",
+    "iii": "3",
+    "iv": "4",
+    "v": "5",
+    "vi": "6",
+    "vii": "7",
+    "viii": "8",
+    "ix": "9",
+    "x": "10",
+}
+
+# Common abbreviations in release titles. Pattern: match as a whole word
+# (word-boundary), normalize to canonical form. These run BEFORE
+# punctuation stripping so trailing dots in "Pt." / "Vol." are captured.
+_ABBREVIATIONS = [
+    (re.compile(r"\bpt\.?\b", re.IGNORECASE), "part"),
+    (re.compile(r"\bvol\.?\b", re.IGNORECASE), "volume"),
+    (re.compile(r"\bno\.?\b", re.IGNORECASE), "number"),
+    (re.compile(r"\bft\.?\b", re.IGNORECASE), "featuring"),
+    (re.compile(r"\bfeat\.?\b", re.IGNORECASE), "featuring"),
+    (re.compile(r"\bep\b", re.IGNORECASE), ""),  # drop "EP" marker
+    (re.compile(r"\s+&\s+"), " and "),  # explicit ampersand with spaces
+    (re.compile(r"&"), " and "),  # any other ampersand
+]
+
+
+def _normalize_abbreviations(s: str) -> str:
+    """Expand common abbreviations so fuzzy matching sees canonical forms.
+
+    "Pt. 2" -> "part 2"
+    "Vol. 1" -> "volume 1"
+    "Jay-Z & Kanye" -> "Jay-Z and Kanye"
+    """
+    for pattern, replacement in _ABBREVIATIONS:
+        s = pattern.sub(replacement, s)
+    return s
+
+
+_ROMAN_PATTERN = re.compile(
+    r"\b(?:" + "|".join(sorted(_ROMAN_NUMERALS, key=len, reverse=True)) + r")\b",
+    re.IGNORECASE,
+)
+
+
+def _normalize_romans(s: str) -> str:
+    """Replace standalone roman numerals I-X with their Arabic equivalents.
+
+    Only matches word-boundary tokens to avoid mangling real words like
+    "in", "it", "vim" that happen to contain roman numeral characters.
+    """
+    def _replace(match: re.Match[str]) -> str:
+        return _ROMAN_NUMERALS[match.group(0).lower()]
+    return _ROMAN_PATTERN.sub(_replace, s)
+
+
+def _normalize(s: str) -> str:
+    """Lowercase, strip diacritics, expand abbreviations, normalize romans."""
+    if not s:
+        return ""
+    # Strip diacritics first so downstream regexes see ASCII.
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(c for c in s if not unicodedata.combining(c))
+    # Expand abbreviations BEFORE stripping punctuation so "Pt." and
+    # "Vol." patterns can still match their trailing dots, and so "&"
+    # is still present when the ampersand rules run.
+    s = _normalize_abbreviations(s)
+    s = _normalize_romans(s)
+    s = s.lower()
+    # Strip remaining punctuation (keep word chars + whitespace).
+    s = re.sub(r"[^\w\s]", " ", s)
+    # Collapse whitespace.
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
 def _fuzzy_album(a: str, b: str) -> float:
-    a = _normalize(strip_album_noise(a))
-    b = _normalize(strip_album_noise(b))
-    if not a or not b:
+    """Compute album title similarity 0.0-1.0.
+
+    Uses rapidfuzz token_set_ratio after strip_album_noise + _normalize.
+    token_set_ratio handles stopwords ("The Wall" vs "Wall"), word
+    reordering, and is insensitive to duplicate tokens.
+    """
+    a_n = _normalize(strip_album_noise(a))
+    b_n = _normalize(strip_album_noise(b))
+    if not a_n or not b_n:
         return 0.0
-    if a == b:
+    if a_n == b_n:
         return 1.0
-    if a in b or b in a:
-        return 0.85
-    return _token_similarity(a, b)
+    return _fuzz.token_set_ratio(a_n, b_n) / 100.0
 
 
 def _fuzzy_artist(a: str, b: str) -> float:
-    a = _normalize(a)
-    b = _normalize(b)
-    if not a or not b:
+    """Compute artist name similarity 0.0-1.0.
+
+    Uses rapidfuzz WRatio which combines token_sort_ratio,
+    partial_ratio, and token_set_ratio -- designed for short,
+    reorder-tolerant identifier strings.
+    """
+    a_n = _normalize(a)
+    b_n = _normalize(b)
+    if not a_n or not b_n:
         return 0.0
-    if a == b:
+    if a_n == b_n:
         return 1.0
-    a_tokens = set(a.split())
-    b_tokens = set(b.split())
-    if not a_tokens or not b_tokens:
-        return 0.0
-    overlap = len(a_tokens & b_tokens)
-    return overlap / max(len(a_tokens), len(b_tokens))
+    return _fuzz.WRatio(a_n, b_n) / 100.0
 
 
 def _fuzzy_normalize(a: str, b: str) -> float:
-    a = _normalize(a)
-    b = _normalize(b)
-    if not a or not b:
+    """Generic fuzzy match for labels / catalogue numbers / etc.
+
+    Uses partial_ratio to handle substring cases like "Sub Pop" vs
+    "Sub Pop Records".
+    """
+    a_n = _normalize(a)
+    b_n = _normalize(b)
+    if not a_n or not b_n:
         return 0.0
-    if a == b:
+    if a_n == b_n:
         return 1.0
-    if a in b or b in a:
-        return 0.8
-    return _token_similarity(a, b)
-
-
-def _token_similarity(a: str, b: str) -> float:
-    a_tokens = set(a.split())
-    b_tokens = set(b.split())
-    if not a_tokens or not b_tokens:
-        return 0.0
-    overlap = len(a_tokens & b_tokens)
-    return overlap / max(len(a_tokens), len(b_tokens))
+    return _fuzz.partial_ratio(a_n, b_n) / 100.0
 
 
 def _match_year(a, b) -> float:
