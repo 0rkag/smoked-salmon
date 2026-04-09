@@ -88,6 +88,16 @@ class FakeModule:
         self.Searcher = cls
 
 
+@pytest.fixture(autouse=True)
+def _reset_fake_state():
+    """Reset the class-level capture attribute before each test so tests
+    don't leak kwarg state into each other (especially under parallel
+    runners like pytest-xdist).
+    """
+    FakeActiveSearcher.last_kwargs = None
+    yield
+
+
 @pytest.fixture
 def fake_sources():
     return {
@@ -128,7 +138,6 @@ class TestRunMetasearch:
         assert "FakeError" not in results
 
     async def test_structured_kwargs_forwarded_to_provider(self, fake_sources):
-        FakeActiveSearcher.last_kwargs = None
         with patch.dict("salmon.search.SEARCHSOURCES", fake_sources, clear=True):
             await run_metasearch(
                 ["searchstr"],
