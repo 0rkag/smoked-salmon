@@ -290,3 +290,40 @@ class TestLabelAsArtistCredit:
         )
         # The standard fuzzy artist match should kick in here
         assert s_normal > 50.0
+
+
+class TestIsSentinelArtist:
+    def test_none(self):
+        from salmon.search.scoring import is_sentinel_artist
+        assert is_sentinel_artist(None) is True
+
+    def test_empty(self):
+        from salmon.search.scoring import is_sentinel_artist
+        assert is_sentinel_artist("") is True
+
+    def test_unknown_artist(self):
+        from salmon.search.scoring import is_sentinel_artist
+        assert is_sentinel_artist("Unknown Artist") is True
+
+    def test_various_artists(self):
+        from salmon.search.scoring import is_sentinel_artist
+        assert is_sentinel_artist("Various Artists") is True
+
+    def test_case_insensitive(self):
+        from salmon.search.scoring import is_sentinel_artist
+        assert is_sentinel_artist("VARIOUS") is True
+        assert is_sentinel_artist("unknown") is True
+
+    def test_whitespace_stripped(self):
+        from salmon.search.scoring import is_sentinel_artist
+        assert is_sentinel_artist("  Unknown Artist  ") is True
+
+    def test_real_artist(self):
+        from salmon.search.scoring import is_sentinel_artist
+        assert is_sentinel_artist("Burial") is False
+        assert is_sentinel_artist("The Beatles") is False
+
+    def test_real_artist_containing_various(self):
+        # "Variously" is NOT a sentinel
+        from salmon.search.scoring import is_sentinel_artist
+        assert is_sentinel_artist("Variously") is False

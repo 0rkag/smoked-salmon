@@ -5,7 +5,7 @@ from unidecode import unidecode
 
 from salmon import cfg
 from salmon.search.base import IdentData, SearchMixin, SearchResult
-from salmon.search.scoring import FallbackLevel, strip_album_noise
+from salmon.search.scoring import FallbackLevel, is_sentinel_artist, strip_album_noise
 from salmon.sources import DiscogsBase
 
 SOURCES = {
@@ -95,29 +95,27 @@ class Searcher(DiscogsBase, SearchMixin):
 
     @staticmethod
     def _build_fallback_chain(searchstr, *, artist, album, year, label, catno, is_va):
-        """Build (params, FallbackLevel) pairs from most structured to loosest."""
+        """Build (params, FallbackLevel) pairs from most structured to loosest.
+
+        Tier 1 - artist-anchored: only when the artist identifies someone
+        specific (not a sentinel like "Unknown Artist" or "Various").
+        Tier 2 - label-anchored: runs whenever a label is known; works for
+        both anonymous releases and releases with real artists as a fallback.
+        Tier 2b - bare album: when neither artist nor label help.
+        Tier 3 - free text: final catch-all.
+        Tier 3b - accent-normalized free text: last resort for non-ASCII titles.
+        """
+        # is_va kept for API compat; see is_sentinel_artist
+        del is_va
         artist = _clean_artist(artist) if artist else None
         album = _clean_album(album) if album else None
+        has_real_artist = bool(artist) and not is_sentinel_artist(artist)
 
         chains: list[tuple[dict, FallbackLevel]] = []
-        if is_va:
-            if album and label and catno:
-                chains.append((
-                    {"release_title": album, "label": label, "catno": catno},
-                    FallbackLevel.STRUCTURED,
-                ))
-            if album and label:
-                chains.append((
-                    {"release_title": album, "label": label},
-                    FallbackLevel.PARTIAL_STRUCTURED,
-                ))
-            if album:
-                chains.append((
-                    {"release_title": album},
-                    FallbackLevel.PARTIAL_STRUCTURED,
-                ))
-        else:
-            if artist and album and year and label and catno:
+
+        # --- Tier 1: artist-anchored ---
+        if has_real_artist and album:
+            if year and label and catno:
                 chains.append((
                     {
                         "artist": artist,
@@ -128,23 +126,54 @@ class Searcher(DiscogsBase, SearchMixin):
                     },
                     FallbackLevel.STRUCTURED,
                 ))
-            if artist and album and year:
+            if year:
+                chains.append((
+                    {"artist": artist, "release_title": album, "year": str(year)},
+                    FallbackLevel.STRUCTURED,
+                ))
+            chains.append((
+                {"artist": artist, "release_title": album},
+                FallbackLevel.PARTIAL_STRUCTURED,
+            ))
+
+        # --- Tier 2: label-anchored (no artist required) ---
+        if album and label:
+            if year and catno:
                 chains.append((
                     {
-                        "artist": artist,
                         "release_title": album,
+                        "label": label,
                         "year": str(year),
+                        "catno": catno,
                     },
-                    FallbackLevel.PARTIAL_STRUCTURED,
+                    FallbackLevel.STRUCTURED,
                 ))
-            if artist and album:
+            if year:
                 chains.append((
-                    {"artist": artist, "release_title": album},
-                    FallbackLevel.PARTIAL_STRUCTURED,
+                    {"release_title": album, "label": label, "year": str(year)},
+                    FallbackLevel.STRUCTURED,
                 ))
+            if catno:
+                chains.append((
+                    {"release_title": album, "label": label, "catno": catno},
+                    FallbackLevel.STRUCTURED,
+                ))
+            chains.append((
+                {"release_title": album, "label": label},
+                FallbackLevel.PARTIAL_STRUCTURED,
+            ))
+
+        # --- Tier 2b: bare album (only when no label anchor) ---
+        if album and not label:
+            chains.append((
+                {"release_title": album},
+                FallbackLevel.PARTIAL_STRUCTURED,
+            ))
+
+        # --- Tier 3: free text ---
         chains.append(({"q": searchstr}, FallbackLevel.FREE_TEXT))
 
-        # Also try with normalized accents as a final structured attempt
+        # --- Tier 3b: accent-normalized free text ---
         normalized = _normalize_accents(searchstr)
         if normalized != searchstr:
             chains.append(({"q": normalized}, FallbackLevel.LOOSE))

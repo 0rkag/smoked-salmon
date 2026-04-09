@@ -17,6 +17,33 @@ if TYPE_CHECKING:
     from salmon.search.base import IdentData
 
 
+SENTINEL_ARTISTS = frozenset({
+    "",
+    "unknown artist",
+    "unknown",
+    "various",
+    "various artists",
+    "v.a.",
+    "va",
+    "anonymous",
+    "no artist",
+})
+
+
+def is_sentinel_artist(artist: str | None) -> bool:
+    """Return True if `artist` is a placeholder that doesn't identify a
+    specific artist (e.g. "Unknown Artist", "Various", "VA").
+
+    Used by provider fallback chains to decide whether to emit structured
+    queries that filter by artist. Sentinel values as a filter return zero
+    results from most provider APIs because metadata sources don't index
+    anonymous releases under a literal "Unknown Artist" string.
+    """
+    if not artist:
+        return True
+    return artist.strip().lower() in SENTINEL_ARTISTS
+
+
 class FallbackLevel(IntEnum):
     """How closely a search result matched the structured query.
 

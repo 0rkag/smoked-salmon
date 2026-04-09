@@ -6,7 +6,7 @@ import musicbrainzngs
 from salmon import cfg
 from salmon.errors import ScrapeError
 from salmon.search.base import IdentData, SearchMixin, SearchResult
-from salmon.search.scoring import FallbackLevel
+from salmon.search.scoring import FallbackLevel, is_sentinel_artist
 from salmon.sources import MusicBrainzBase
 
 
@@ -119,26 +119,24 @@ class Searcher(MusicBrainzBase, SearchMixin):
 
     @staticmethod
     def _build_fallback_chain(searchstr, *, artist, album, year, label, catno, release_type, is_va):
-        """Build (kwargs, FallbackLevel) pairs from most structured to loosest."""
+        """Build (kwargs, FallbackLevel) pairs from most structured to loosest.
+
+        Tier 1 - artist-anchored: only when the artist identifies someone
+        specific (not a sentinel like "Unknown Artist" or "Various").
+        Tier 2 - label-anchored: runs whenever a label is known; works for
+        both anonymous releases and releases with real artists as a fallback.
+        Tier 2b - bare album: when neither artist nor label help.
+        Tier 3 - free text: final catch-all.
+        """
+        # is_va and release_type kept for API compat
+        del is_va, release_type
+        has_real_artist = bool(artist) and not is_sentinel_artist(artist)
+
         chains: list[tuple[dict, FallbackLevel]] = []
-        if is_va:
-            if album and label and catno:
-                chains.append((
-                    {"release": album, "label": label, "catno": catno},
-                    FallbackLevel.STRUCTURED,
-                ))
-            if album and label:
-                chains.append((
-                    {"release": album, "label": label},
-                    FallbackLevel.PARTIAL_STRUCTURED,
-                ))
-            if album:
-                chains.append((
-                    {"release": album},
-                    FallbackLevel.PARTIAL_STRUCTURED,
-                ))
-        else:
-            if artist and album and year and label and catno:
+
+        # --- Tier 1: artist-anchored ---
+        if has_real_artist and album:
+            if year and label and catno:
                 chains.append((
                     {
                         "artist": artist,
@@ -149,15 +147,50 @@ class Searcher(MusicBrainzBase, SearchMixin):
                     },
                     FallbackLevel.STRUCTURED,
                 ))
-            if artist and album and year:
+            if year:
                 chains.append((
                     {"artist": artist, "release": album, "date": str(year)},
-                    FallbackLevel.PARTIAL_STRUCTURED,
+                    FallbackLevel.STRUCTURED,
                 ))
-            if artist and album:
+            chains.append((
+                {"artist": artist, "release": album},
+                FallbackLevel.PARTIAL_STRUCTURED,
+            ))
+
+        # --- Tier 2: label-anchored (no artist required) ---
+        if album and label:
+            if year and catno:
                 chains.append((
-                    {"artist": artist, "release": album},
-                    FallbackLevel.PARTIAL_STRUCTURED,
+                    {
+                        "release": album,
+                        "label": label,
+                        "date": str(year),
+                        "catno": catno,
+                    },
+                    FallbackLevel.STRUCTURED,
                 ))
+            if year:
+                chains.append((
+                    {"release": album, "label": label, "date": str(year)},
+                    FallbackLevel.STRUCTURED,
+                ))
+            if catno:
+                chains.append((
+                    {"release": album, "label": label, "catno": catno},
+                    FallbackLevel.STRUCTURED,
+                ))
+            chains.append((
+                {"release": album, "label": label},
+                FallbackLevel.PARTIAL_STRUCTURED,
+            ))
+
+        # --- Tier 2b: bare album (only when no label anchor) ---
+        if album and not label:
+            chains.append((
+                {"release": album},
+                FallbackLevel.PARTIAL_STRUCTURED,
+            ))
+
+        # --- Tier 3: free text ---
         chains.append(({"query": searchstr}, FallbackLevel.FREE_TEXT))
         return chains
