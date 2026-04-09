@@ -375,14 +375,14 @@ class TestFuzzyImprovements:
         assert _fuzzy_album("Burial", "Taylor Swift") < 0.5
 
     def test_normalize_abbreviations(self):
-        from salmon.search.scoring import _normalize_abbreviations
-        assert "part" in _normalize_abbreviations("Pt. 2")
-        assert "volume" in _normalize_abbreviations("Vol. 1")
-        assert "and" in _normalize_abbreviations("Jay & Beyoncé")
+        from salmon.common.strings import normalize_abbreviations
+        assert "part" in normalize_abbreviations("Pt. 2")
+        assert "volume" in normalize_abbreviations("Vol. 1")
+        assert "and" in normalize_abbreviations("Jay & Beyoncé")
 
     def test_normalize_romans(self):
-        from salmon.search.scoring import _normalize_romans
-        assert _normalize_romans("Part II") == "Part 2"
-        assert _normalize_romans("Vol III") == "Vol 3"
+        from salmon.common.strings import normalize_romans
+        assert normalize_romans("Part II") == "Part 2"
+        assert normalize_romans("Vol III") == "Vol 3"
         # Do not mangle words that look like roman numerals
-        assert _normalize_romans("Paradise City") == "Paradise City"  # no change, no roman
+        assert normalize_romans("Paradise City") == "Paradise City"  # no change, no roman
