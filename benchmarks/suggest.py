@@ -122,6 +122,99 @@ def _discogs_master_fallback_url(
     return f"https://www.discogs.com/release/{version_id}", master_id, version_id
 
 
+async def scrape_provider_cached(
+    entry: _run.CorpusEntry,
+    provider: str,
+    oracle_cache_dir: Path,
+    master_cache: dict[str, set[str]],
+    *,
+    refresh: bool,
+    verbose: bool = False,
+    log_prefix: str = "oracle attempt",
+) -> dict[str, Any] | None:
+    """Scrape a single provider's ground-truth URL with on-disk caching.
+
+    Returns the scraped dict, or ``None`` if the provider has no GT URL,
+    is not a known METASOURCE, its cache entry is unreadable, or every
+    scrape attempt raised. For Discogs master URLs that the scraper
+    cannot handle directly, falls back to the first known version
+    (release) URL from ``master_cache``.
+
+    The cache format and filesystem layout match ``scrape_oracle``'s
+    existing ``cache_oracle/<slug>/<Provider>.json`` so a single scrape
+    satisfies both suggest.py and compare.py.
+    """
+    gt_url = entry.ground_truth.get(provider)
+    if not gt_url:
+        return None
+    if provider not in METASOURCES:
+        return None
+
+    cache_path = oracle_cache_dir / entry.slug / f"{provider.replace(' ', '_')}.json"
+    if cache_path.exists() and not refresh:
+        try:
+            cached = json.loads(cache_path.read_text())
+            print(f"  {log_prefix}: {provider} -> cache hit")
+            return cached
+        except (json.JSONDecodeError, OSError) as exc:
+            print(
+                f"  ! {entry.slug}: oracle cache {cache_path} unreadable: {exc}",
+                file=sys.stderr,
+            )
+
+    scrape_url = gt_url
+    fallback_note: str | None = None
+
+    data: dict[str, Any] | None = None
+    try:
+        scraper = METASOURCES[provider].Scraper()
+        data = await scraper.scrape_release(scrape_url)
+    except Exception as exc:  # noqa: BLE001
+        err = f"{type(exc).__name__}: {exc}"
+        print(f"  {log_prefix}: {provider} -> {err}")
+        if verbose:
+            traceback.print_exc()
+
+        # Try Discogs master -> release fallback.
+        if provider == "Discogs":
+            fb = _discogs_master_fallback_url(gt_url, master_cache)
+            if fb is not None:
+                scrape_url, master_id, version_id = fb
+                print(
+                    f"  {log_prefix}: {provider} -> master URL not directly "
+                    f"scrapeable, using version {version_id}"
+                )
+                try:
+                    scraper = METASOURCES[provider].Scraper()
+                    data = await scraper.scrape_release(scrape_url)
+                    fallback_note = f"via master {master_id} -> release {version_id}"
+                except Exception as exc2:  # noqa: BLE001
+                    err2 = f"{type(exc2).__name__}: {exc2}"
+                    print(f"  {log_prefix}: {provider} -> fallback failed: {err2}")
+                    if verbose:
+                        traceback.print_exc()
+                    return None
+            else:
+                return None
+        else:
+            return None
+
+    if data is None:
+        return None
+
+    try:
+        cache_path.parent.mkdir(parents=True, exist_ok=True)
+        cache_path.write_text(
+            json.dumps(_jsonable(data), indent=2, sort_keys=True, default=str) + "\n"
+        )
+    except (TypeError, OSError) as exc:
+        print(f"  ! {entry.slug}: failed to cache oracle: {exc}", file=sys.stderr)
+
+    if fallback_note:
+        print(f"  {log_prefix}: {provider} ok ({fallback_note})")
+    return data
+
+
 async def scrape_oracle(
     entry: _run.CorpusEntry,
     oracle_cache_dir: Path,
@@ -134,84 +227,19 @@ async def scrape_oracle(
 
     Returns (oracle_data, oracle_provider_name). Falls through to the next
     priority on scrape errors. Returns (None, None) if nothing usable.
-
-    For Discogs master URLs that the scraper cannot handle directly, falls
-    back to the first known version (release) URL from ``master_cache``.
     """
     for provider in ORACLE_PRIORITY:
-        gt_url = entry.ground_truth.get(provider)
-        if not gt_url:
-            continue
-        if provider not in METASOURCES:
-            continue
-
-        cache_path = oracle_cache_dir / entry.slug / f"{provider.replace(' ', '_')}.json"
-        if cache_path.exists() and not refresh:
-            try:
-                cached = json.loads(cache_path.read_text())
-                print(f"  oracle attempt: {provider} -> cache hit")
-                return cached, provider
-            except (json.JSONDecodeError, OSError) as exc:
-                print(
-                    f"  ! {entry.slug}: oracle cache {cache_path} unreadable: {exc}",
-                    file=sys.stderr,
-                )
-
-        scrape_url = gt_url
-        fallback_note: str | None = None
-
-        # Try the GT URL first.
-        data: dict[str, Any] | None = None
-        try:
-            scraper = METASOURCES[provider].Scraper()
-            data = await scraper.scrape_release(scrape_url)
-        except Exception as exc:  # noqa: BLE001
-            err = f"{type(exc).__name__}: {exc}"
-            print(f"  oracle attempt: {provider} -> {err}")
-            if verbose:
-                traceback.print_exc()
-
-            # Try Discogs master -> release fallback.
-            if provider == "Discogs":
-                fb = _discogs_master_fallback_url(gt_url, master_cache)
-                if fb is not None:
-                    scrape_url, master_id, version_id = fb
-                    print(
-                        f"  oracle attempt: {provider} -> master URL not directly "
-                        f"scrapeable, using version {version_id}"
-                    )
-                    try:
-                        scraper = METASOURCES[provider].Scraper()
-                        data = await scraper.scrape_release(scrape_url)
-                        fallback_note = f"via master {master_id} -> release {version_id}"
-                    except Exception as exc2:  # noqa: BLE001
-                        err2 = f"{type(exc2).__name__}: {exc2}"
-                        print(f"  oracle attempt: {provider} -> fallback failed: {err2}")
-                        if verbose:
-                            traceback.print_exc()
-                        continue
-                else:
-                    continue
-            else:
-                continue
-
-        if data is None:
-            continue
-
-        try:
-            cache_path.parent.mkdir(parents=True, exist_ok=True)
-            cache_path.write_text(
-                json.dumps(_jsonable(data), indent=2, sort_keys=True, default=str) + "\n"
-            )
-        except (TypeError, OSError) as exc:
-            print(f"  ! {entry.slug}: failed to cache oracle: {exc}", file=sys.stderr)
-
-        if fallback_note:
-            print(f"  oracle: {provider} ({fallback_note})")
-        else:
+        data = await scrape_provider_cached(
+            entry,
+            provider,
+            oracle_cache_dir,
+            master_cache,
+            refresh=refresh,
+            verbose=verbose,
+        )
+        if data is not None:
             print(f"  oracle: {provider}")
-        return data, provider
-
+            return data, provider
     return None, None
 
 

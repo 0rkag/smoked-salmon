@@ -114,6 +114,10 @@ def _extract_tag_data(path: Path, source: str | None = None) -> dict[str, Any]:
         "catno": rls_data.get("catno"),
         "track_count": track_count,
         "source": rls_data.get("source"),
+        # Absolute path to the album folder on disk. Used by
+        # benchmarks/compare.py to re-read the local tracklist for
+        # diffing against provider metadata.
+        "source_path": str(path.resolve()),
     }
 
 
