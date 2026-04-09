@@ -256,10 +256,18 @@ def _fuzzy_artist(a: str, b: str) -> float:
 
 
 def _fuzzy_normalize(a: str, b: str) -> float:
-    """Generic fuzzy match for labels / catalogue numbers / etc.
+    """Generic fuzzy match for labels and similar short-ish identifiers.
 
-    Uses partial_ratio to handle substring cases like "Sub Pop" vs
-    "Sub Pop Records".
+    Uses partial_ratio so that "Sub Pop" matches "Sub Pop Records" at 100%
+    — a real-world case where one side is a subset of the other.
+
+    To prevent partial-ratio false positives on short strings (e.g. label
+    "Warp" matching result label "Warpaint" at 100%), we only accept
+    partial-ratio when the shorter string appears at a word boundary
+    inside the longer one. That way "Sub Pop" matches "Sub Pop Records"
+    (word-bounded) but "Warp" does not match "Warpaint" (not a word in
+    "warpaint") and falls back to token_sort_ratio, which penalizes the
+    length mismatch.
     """
     a_n = _normalize(a)
     b_n = _normalize(b)
@@ -267,7 +275,10 @@ def _fuzzy_normalize(a: str, b: str) -> float:
         return 0.0
     if a_n == b_n:
         return 1.0
-    return _fuzz.partial_ratio(a_n, b_n) / 100.0
+    shorter, longer = (a_n, b_n) if len(a_n) <= len(b_n) else (b_n, a_n)
+    if re.search(rf"\b{re.escape(shorter)}\b", longer):
+        return _fuzz.partial_ratio(a_n, b_n) / 100.0
+    return _fuzz.token_sort_ratio(a_n, b_n) / 100.0
 
 
 def _match_year(a, b) -> float:

@@ -141,6 +141,34 @@ class TestFuzzyArtist:
         assert _fuzzy_artist("Beatles", "Rolling Stones") < 0.5
 
 
+class TestFuzzyNormalizeLabel:
+    """Label-oriented partial matching must handle the 'Sub Pop' vs
+    'Sub Pop Records' case without introducing false positives on short
+    prefix-colliding labels like 'Warp' vs 'Warpaint'.
+    """
+
+    def test_exact(self):
+        from salmon.search.scoring import _fuzzy_normalize
+        assert _fuzzy_normalize("Hyperdub", "Hyperdub") == 1.0
+
+    def test_word_bounded_partial_scores_full(self):
+        """Legitimate partial matches (tag label is a word-bounded prefix
+        of the result label) score 1.0."""
+        from salmon.search.scoring import _fuzzy_normalize
+        assert _fuzzy_normalize("Sub Pop", "Sub Pop Records") == 1.0
+        assert _fuzzy_normalize("XL", "XL Recordings") == 1.0
+        assert _fuzzy_normalize("Def", "Def Jam") == 1.0
+        assert _fuzzy_normalize("Warp", "Warp Records") == 1.0
+
+    def test_non_word_prefix_does_not_match_at_1(self):
+        """'Warp' is not a word in 'Warpaint' — the partial_ratio false
+        positive must NOT trigger. Falls back to token_sort_ratio which
+        penalizes the length mismatch."""
+        from salmon.search.scoring import _fuzzy_normalize
+        assert _fuzzy_normalize("Warp", "Warpaint") < 1.0
+        assert _fuzzy_normalize("A", "Astralwerks") < 0.5
+
+
 class TestMatchYear:
     def test_exact(self):
         assert _match_year(2020, 2020) == 1.0
