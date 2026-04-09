@@ -1,0 +1,41 @@
+# Aggressive noise: stress-tests the scoring algorithm's resilience under
+# heavy tag corruption. Not representative of real-world tag quality —
+# use this to find breaking points, not to estimate production performance.
+seed = 42
+
+[noises]
+# Field dropping
+drop_label = 0.50
+drop_catno = 0.60
+drop_year = 0.40
+drop_track_count = 0.25
+drop_source = 0.40
+
+# Numeric drift
+year_off_by_1 = 0.20
+year_off_by_5 = 0.08
+track_count_off_by_1 = 0.15
+
+# Character-level errors
+album_swap_adjacent_chars = 0.10
+album_drop_char = 0.08
+album_case_flip = 0.15
+album_double_space = 0.10
+artist_trailing_whitespace = 0.15
+
+# Unicode drift
+album_strip_accents = 0.20
+album_transliterate = 0.10
+album_fullwidth_to_halfwidth = 0.05
+album_mojibake = 0.05
+
+# Semantic/formatting drift
+album_feat_drop = 0.15
+album_feat_add = 0.08
+album_edition_add = 0.15
+album_edition_strip = 0.15
+album_volume_abbrev_drift = 0.15
+album_roman_numeral_drift = 0.12
+label_as_artist = 0.08
+catno_as_catno_no_label = 0.15
+swap_artist_album = 0.05

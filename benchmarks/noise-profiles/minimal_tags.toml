@@ -1,0 +1,10 @@
+# Simulates users with minimal/sparse tags — the most common real-world
+# failure mode. Only field-dropping noises.
+seed = 42
+
+[noises]
+drop_label = 0.40
+drop_catno = 0.50
+drop_year = 0.25
+drop_track_count = 0.15
+drop_source = 0.30

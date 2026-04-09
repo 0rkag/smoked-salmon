@@ -1,0 +1,29 @@
+# Mixed bag: field dropping + numeric drift. Simulates a realistic
+# distribution of tag quality across a typical music library.
+seed = 42
+
+[noises]
+drop_label = 0.25
+drop_catno = 0.40
+drop_year = 0.15
+drop_track_count = 0.10
+drop_source = 0.20
+year_off_by_1 = 0.08
+year_off_by_5 = 0.03
+track_count_off_by_1 = 0.05
+
+# New Bucket 3 additions (character-level drift)
+album_case_flip = 0.08
+album_double_space = 0.04
+artist_trailing_whitespace = 0.06
+
+# New Bucket 4 additions (unicode drift — no-ops for ASCII titles, which is fine)
+album_strip_accents = 0.10
+album_transliterate = 0.03
+
+# New Bucket 5 additions (semantic drift)
+album_feat_drop = 0.08
+album_edition_add = 0.05
+album_edition_strip = 0.08
+album_volume_abbrev_drift = 0.06
+album_roman_numeral_drift = 0.04

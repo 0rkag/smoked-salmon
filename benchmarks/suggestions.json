@@ -1,0 +1,20 @@
+{
+  "suggestions": [
+    {
+      "gt_url": "https://music.apple.com/us/album/the-process/1781096448",
+      "kind": "exclude",
+      "oracle_provider": "Bandcamp",
+      "provider": "Apple Music",
+      "reason": "enriched query returned 0 results \u2014 release likely not on this platform",
+      "score": null,
+      "slug": "wangan-club-wemory-the-process",
+      "url": null
+    }
+  ],
+  "summary": {
+    "add": 0,
+    "exclude": 1,
+    "input_gap": 0,
+    "warning": 0
+  }
+}

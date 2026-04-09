@@ -1,0 +1,352 @@
+{
+  "categories": {
+    "representative": 41
+  },
+  "corpus_size": 41,
+  "providers": {
+    "Apple Music": {
+      "mrr": 0.8182,
+      "n": 11,
+      "ranks": [
+        {
+          "rank": 1,
+          "slug": "antosi-narcism"
+        },
+        {
+          "rank": 1,
+          "slug": "babon-tropical-desert"
+        },
+        {
+          "rank": 1,
+          "slug": "ban-ben-shen-tai-lang-yatsuho"
+        },
+        {
+          "rank": 1,
+          "slug": "border-one-light-trail-ep"
+        },
+        {
+          "rank": 1,
+          "slug": "burial-subtemple"
+        },
+        {
+          "rank": 1,
+          "slug": "chris-lake-i-want-you-vs-operator-remixes"
+        },
+        {
+          "rank": 1,
+          "slug": "dj-swisherman-drink-n-smoke"
+        },
+        {
+          "rank": 1,
+          "slug": "dj-swisherman-smoked-out"
+        },
+        {
+          "rank": null,
+          "slug": "dj-swisherman-thats-the-sizzurp"
+        },
+        {
+          "rank": 1,
+          "slug": "hiroaki-iizuka-recall"
+        },
+        {
+          "rank": null,
+          "slug": "wangan-club-wemory-the-process"
+        }
+      ],
+      "recall@1": 0.8182,
+      "recall@3": 0.8182,
+      "recall@5": 0.8182
+    },
+    "Bandcamp": {
+      "mrr": 1.0,
+      "n": 30,
+      "ranks": [
+        {
+          "rank": 1,
+          "slug": "18-compilation"
+        },
+        {
+          "rank": 1,
+          "slug": "albert-zhirnov-albert-zhirnov-switchback-ep-crg028"
+        },
+        {
+          "rank": 1,
+          "slug": "babon-tropical-desert"
+        },
+        {
+          "rank": 1,
+          "slug": "border-one-light-trail-ep"
+        },
+        {
+          "rank": 1,
+          "slug": "burial-subtemple"
+        },
+        {
+          "rank": 1,
+          "slug": "cravagoide-hidden-sanctuary"
+        },
+        {
+          "rank": 1,
+          "slug": "dj-swisherman-drink-n-smoke"
+        },
+        {
+          "rank": 1,
+          "slug": "dj-swisherman-smoked-out"
+        },
+        {
+          "rank": 1,
+          "slug": "dj-swisherman-thats-the-sizzurp"
+        },
+        {
+          "rank": 1,
+          "slug": "eitan-reiter-chronic-girl"
+        },
+        {
+          "rank": 1,
+          "slug": "floating-points-vacuum-ep"
+        },
+        {
+          "rank": 1,
+          "slug": "hiroaki-iizuka-recall"
+        },
+        {
+          "rank": 1,
+          "slug": "na-you-ta-ji-hua-project-nayuta-uniomisty"
+        },
+        {
+          "rank": 1,
+          "slug": "unknown-artist-kcik-1"
+        },
+        {
+          "rank": 1,
+          "slug": "unknown-artist-kcik-11"
+        },
+        {
+          "rank": 1,
+          "slug": "unknown-artist-kcik-14"
+        },
+        {
+          "rank": 1,
+          "slug": "unknown-artist-kcik-19"
+        },
+        {
+          "rank": 1,
+          "slug": "unknown-artist-kcik-20"
+        },
+        {
+          "rank": 1,
+          "slug": "unknown-artist-kcik-22"
+        },
+        {
+          "rank": 1,
+          "slug": "unknown-artist-kcik-23"
+        },
+        {
+          "rank": 1,
+          "slug": "unknown-artist-kcik-24"
+        },
+        {
+          "rank": 1,
+          "slug": "unknown-artist-kcik-27"
+        },
+        {
+          "rank": 1,
+          "slug": "unknown-artist-kcik-3"
+        },
+        {
+          "rank": 1,
+          "slug": "unknown-artist-kcik-31"
+        },
+        {
+          "rank": 1,
+          "slug": "unknown-artist-kcik-8"
+        },
+        {
+          "rank": 1,
+          "slug": "wangan-club-most-wanted-06-wc015"
+        },
+        {
+          "rank": 1,
+          "slug": "wangan-club-wc009-wangan-club-2-anos-aniversario-va"
+        },
+        {
+          "rank": 1,
+          "slug": "wangan-club-wc016-wangan-club-3-anos-aniversario-va"
+        },
+        {
+          "rank": 1,
+          "slug": "wangan-club-wemory-the-process"
+        },
+        {
+          "rank": 1,
+          "slug": "zerofg-3fd-collection"
+        }
+      ],
+      "recall@1": 1.0,
+      "recall@3": 1.0,
+      "recall@5": 1.0
+    },
+    "Beatport": {
+      "mrr": 0.8333,
+      "n": 3,
+      "ranks": [
+        {
+          "rank": 1,
+          "slug": "albert-zhirnov-albert-zhirnov-switchback-ep-crg028"
+        },
+        {
+          "rank": 2,
+          "slug": "chris-lake-i-want-you-vs-operator-remixes"
+        },
+        {
+          "rank": 1,
+          "slug": "eitan-reiter-chronic-girl"
+        }
+      ],
+      "recall@1": 0.6667,
+      "recall@3": 1.0,
+      "recall@5": 1.0
+    },
+    "Discogs": {
+      "mrr": 0.881,
+      "n": 21,
+      "ranks": [
+        {
+          "rank": null,
+          "slug": "18-compilation"
+        },
+        {
+          "rank": 2,
+          "slug": "albert-zhirnov-albert-zhirnov-switchback-ep-crg028"
+        },
+        {
+          "rank": 1,
+          "slug": "babon-tropical-desert"
+        },
+        {
+          "rank": 1,
+          "slug": "border-one-light-trail-ep"
+        },
+        {
+          "rank": 1,
+          "slug": "burial-subtemple"
+        },
+        {
+          "rank": 1,
+          "slug": "chris-lake-i-want-you-vs-operator-remixes"
+        },
+        {
+          "rank": 2,
+          "slug": "cravagoide-hidden-sanctuary"
+        },
+        {
+          "rank": 1,
+          "slug": "eitan-reiter-chronic-girl"
+        },
+        {
+          "rank": 1,
+          "slug": "floating-points-vacuum-ep"
+        },
+        {
+          "rank": 1,
+          "slug": "hiroaki-iizuka-recall"
+        },
+        {
+          "rank": 1,
+          "slug": "insect-o-bondi-dub"
+        },
+        {
+          "rank": 2,
+          "slug": "moi-01"
+        },
+        {
+          "rank": 1,
+          "slug": "moi-06"
+        },
+        {
+          "rank": 1,
+          "slug": "moi-08"
+        },
+        {
+          "rank": 1,
+          "slug": "sa-pa-feng-wu-shi"
+        },
+        {
+          "rank": 1,
+          "slug": "unknown-artist-hostom-004"
+        },
+        {
+          "rank": 1,
+          "slug": "unknown-artist-hostom-005"
+        },
+        {
+          "rank": 1,
+          "slug": "unknown-artist-hostom-zzz"
+        },
+        {
+          "rank": 1,
+          "slug": "unknown-artist-kcik-11"
+        },
+        {
+          "rank": 1,
+          "slug": "unknown-artist-kcik-3"
+        },
+        {
+          "rank": 1,
+          "slug": "unknown-artist-kcik-8"
+        }
+      ],
+      "recall@1": 0.8095,
+      "recall@3": 0.9524,
+      "recall@5": 0.9524
+    },
+    "MusicBrainz": {
+      "mrr": 0.8889,
+      "n": 9,
+      "ranks": [
+        {
+          "rank": null,
+          "slug": "18-compilation"
+        },
+        {
+          "rank": 1,
+          "slug": "babon-tropical-desert"
+        },
+        {
+          "rank": 1,
+          "slug": "cravagoide-hidden-sanctuary"
+        },
+        {
+          "rank": 1,
+          "slug": "floating-points-vacuum-ep"
+        },
+        {
+          "rank": 1,
+          "slug": "unknown-artist-hostom-004"
+        },
+        {
+          "rank": 1,
+          "slug": "unknown-artist-hostom-005"
+        },
+        {
+          "rank": 1,
+          "slug": "unknown-artist-hostom-zzz"
+        },
+        {
+          "rank": 1,
+          "slug": "wangan-club-wc009-wangan-club-2-anos-aniversario-va"
+        },
+        {
+          "rank": 1,
+          "slug": "wangan-club-wc016-wangan-club-3-anos-aniversario-va"
+        }
+      ],
+      "recall@1": 0.8889,
+      "recall@3": 0.8889,
+      "recall@5": 0.8889
+    },
+    "Tidal": {
+      "inactive": true
+    }
+  }
+}

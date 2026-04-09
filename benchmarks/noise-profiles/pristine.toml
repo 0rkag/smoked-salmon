@@ -1,0 +1,4 @@
+# No noise applied. Useful as a baseline comparison target.
+seed = 42
+
+[noises]

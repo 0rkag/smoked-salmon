@@ -1,0 +1,10 @@
+# Character-level typo stress test — use to measure how well the scoring
+# algorithm tolerates OCR-style or transcription-style errors.
+seed = 42
+
+[noises]
+album_swap_adjacent_chars = 0.30
+album_drop_char = 0.20
+album_case_flip = 0.20
+album_double_space = 0.15
+artist_trailing_whitespace = 0.20
