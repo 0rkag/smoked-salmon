@@ -130,6 +130,14 @@ class UploadSearch(BaseStruct):
     blacklisted_genres: list[str] = msgspec.field(default_factory=lambda: ["Soundtrack", "Asian Music"])
     min_score_threshold: int = 40
     show_all_results: bool = False
+    # Master kill-switch for the improved search pipeline. When True
+    # (default), salmon builds structured provider queries (artist+album+
+    # label+catno+year fallback chains) AND scores/ranks returned results
+    # against the local tag data. When False, providers receive only the
+    # free-text searchstr and results pass through in provider order with
+    # no scoring or threshold filtering. Flip to False if the new pipeline
+    # behaves badly for your tag quality distribution.
+    enable_improved_search: bool = True
 
 
 class UploadFormatting(BaseStruct):

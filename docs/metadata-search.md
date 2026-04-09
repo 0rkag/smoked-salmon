@@ -108,7 +108,19 @@ min_score_threshold = 40               # below this, results are hidden by defau
 show_all_results = false               # override threshold filtering
 excluded_labels = ["edm comps"]        # labels whose results are dropped entirely
 blacklisted_genres = ["Soundtrack", "Asian Music"]
+enable_improved_search = true          # master kill-switch for the new pipeline
 ```
+
+### The `enable_improved_search` kill-switch
+
+Setting `enable_improved_search = false` disables **both** structured provider queries AND scoring/ranking in one flip:
+
+- Providers receive only the free-text `searchstr` (as if nothing were known about artist/album/year/label/catno)
+- The scoring layer is bypassed entirely; results pass through in whatever order the provider returned them
+- `min_score_threshold` becomes a no-op
+- `apply_filter=True` at the call site is ignored
+
+Use this if the new pipeline regresses for your specific tag-quality distribution, or as a debugging aid to compare ranked vs. unranked provider output. The default (`true`) is the recommended setting.
 
 Under `[upload.formatting]`:
 

@@ -176,6 +176,13 @@ session = 'get-from-site-cookie'
 # min_score_threshold = 40
 # # If true, disables the score threshold entirely and shows every result.
 # show_all_results = false
+# # Master kill-switch for the improved search pipeline. When true (default),
+# # salmon builds structured provider queries (artist+album+label+catno+year
+# # fallback chains) AND scores/ranks returned results against tag data. When
+# # false, providers receive only the free-text searchstr and results pass
+# # through in provider order without scoring or threshold filtering. Flip
+# # to false if the new pipeline behaves badly for your tag quality.
+# enable_improved_search = true
 
 # [upload.formatting]
 # # templates for folder and file naming

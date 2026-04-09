@@ -232,3 +232,104 @@ class TestScoreAndFilterTiebreaker:
         assert keys[0] == "structured_id", (
             f"expected structured to beat free-text on tie; got order {keys}"
         )
+
+
+class TestEnableImprovedSearchFlag:
+    """Tests the cfg.upload.search.enable_improved_search kill-switch.
+
+    When the flag is False, run_metasearch should:
+      - pass only None-valued structured kwargs to providers
+      - skip scoring/filtering entirely
+      - return raw provider results in their original order
+    """
+
+    async def test_disabled_passes_none_kwargs_to_provider(self, fake_sources, monkeypatch):
+        """With enable_improved_search=False, provider should receive None
+        values for artist/album/year/label/catno/is_va — even if the caller
+        provides real values."""
+        from salmon.search import run_metasearch as _run
+
+        monkeypatch.setattr(
+            "salmon.search.cfg.upload.search.enable_improved_search",
+            False,
+        )
+
+        with patch.dict("salmon.search.SEARCHSOURCES", fake_sources, clear=True):
+            await _run(
+                ["searchstr"],
+                artists=["The Artist"],
+                album="The Album",
+                year=2020,
+                label="Cool Label",
+                catno="CL001",
+                is_va=False,
+            )
+
+        kwargs = FakeActiveSearcher.last_kwargs
+        assert kwargs is not None
+        assert kwargs["artist"] is None
+        assert kwargs["album"] is None
+        assert kwargs["year"] is None
+        assert kwargs["label"] is None
+        assert kwargs["catno"] is None
+        assert kwargs["is_va"] is False
+
+    async def test_disabled_skips_scoring_and_filtering(self, fake_sources, monkeypatch):
+        """With enable_improved_search=False, results must pass through
+        even when tag data would normally cause the scorer to drop them
+        below the min_score_threshold."""
+        from salmon.search import run_metasearch as _run
+
+        monkeypatch.setattr(
+            "salmon.search.cfg.upload.search.enable_improved_search",
+            False,
+        )
+
+        with patch.dict("salmon.search.SEARCHSOURCES", fake_sources, clear=True):
+            results = await _run(
+                ["searchstr"],
+                artists=["Completely Different"],
+                album="Completely Different Album",
+                year=1950,
+                label="Wrong",
+                catno="W999",
+                source_medium="CD",
+                apply_filter=True,  # normally would trigger scoring
+            )
+
+        # Result survives because scoring/filtering is bypassed.
+        assert results.get("FakeActive"), (
+            "expected results to pass through when enable_improved_search=False"
+        )
+
+    async def test_enabled_default_scores_and_filters(self, fake_sources, monkeypatch):
+        """Sanity check that the default (True) still runs the full pipeline.
+
+        With tag data that completely mismatches the fake result, scoring
+        should kick in and filter it out (as in
+        test_apply_filter_true_filters_low_scores).
+        """
+        from salmon.search import run_metasearch as _run
+
+        monkeypatch.setattr(
+            "salmon.search.cfg.upload.search.enable_improved_search",
+            True,
+        )
+
+        with patch.dict("salmon.search.SEARCHSOURCES", fake_sources, clear=True):
+            results = await _run(
+                ["searchstr"],
+                artists=["Completely Different"],
+                album="Completely Different Album",
+                year=1950,
+                label="Wrong",
+                catno="W999",
+                source_medium="CD",
+                apply_filter=True,
+            )
+
+        # Result is filtered out by the scorer.
+        active = results.get("FakeActive", {})
+        assert active == {}, (
+            f"expected scoring to filter out the mismatched result, got {active}"
+        )

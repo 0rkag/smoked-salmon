@@ -124,28 +124,47 @@ async def run_metasearch(
     active_sources = {k: m for k, m in sources.items() if m.Searcher.is_active()}
     inactive_sources = {k for k in sources if k not in active_sources}
 
-    # Build artist string for structured search
-    artist_str = _derive_artist_str(artists, is_va=is_va)
+    # Master kill-switch: when disabled, skip structured queries AND
+    # scoring/filtering. Providers receive only the free-text searchstr
+    # and results pass through in provider order. Configurable via
+    # cfg.upload.search.enable_improved_search.
+    improved_search = cfg.upload.search.enable_improved_search
 
-    structured_kwargs = {
-        "artist": artist_str,
-        "album": album,
-        "year": int(year) if year else None,
-        "label": label,
-        "catno": catno,
-        "is_va": is_va,
-    }
+    if improved_search:
+        # Build artist string for structured search
+        artist_str = _derive_artist_str(artists, is_va=is_va)
 
-    tag = TagData(
-        artist=artist_str,
-        album=album,
-        year=int(year) if year else None,
-        track_count=track_count,
-        source=source_medium,
-        label=label,
-        catno=catno,
-        is_va=is_va,
-    )
+        structured_kwargs = {
+            "artist": artist_str,
+            "album": album,
+            "year": int(year) if year else None,
+            "label": label,
+            "catno": catno,
+            "is_va": is_va,
+        }
+
+        tag = TagData(
+            artist=artist_str,
+            album=album,
+            year=int(year) if year else None,
+            track_count=track_count,
+            source=source_medium,
+            label=label,
+            catno=catno,
+            is_va=is_va,
+        )
+    else:
+        # Legacy path: no structured params, no scoring. Providers fall
+        # through to their free-text branch via the None kwargs.
+        structured_kwargs = {
+            "artist": None,
+            "album": None,
+            "year": None,
+            "label": None,
+            "catno": None,
+            "is_va": False,
+        }
+        tag = None  # unused in legacy path
 
     results: dict[str, Any] = {name: None for name in inactive_sources}
     tasks = [
@@ -156,7 +175,7 @@ async def run_metasearch(
     task_responses = await asyncio.gather(*tasks)
 
     for source, result in [r or (None, None) for r in task_responses]:
-        if result and apply_filter:
+        if result and apply_filter and improved_search:
             result = _score_and_filter_results(result, tag)
         if source:
             results[source] = result
