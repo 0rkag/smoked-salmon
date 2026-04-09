@@ -12,11 +12,7 @@ from salmon.search.scoring import (
 
 
 def _score(**overrides):
-    """Helper: perfect match with selective overrides.
-
-    Overrides may use the old `result_*`/`tag_*` keyword style for back-compat
-    with existing tests.
-    """
+    """Helper: perfect match with selective overrides."""
     defaults = dict(
         result_artist="The Artist", result_album="The Album",
         result_year=2020, result_track_count=10, result_source="WEB",
@@ -26,8 +22,6 @@ def _score(**overrides):
         tag_label="Cool Label", tag_catno="CL001",
         is_va=False,
     )
-    # Discard unsupported overrides (fallback_level was removed)
-    overrides.pop("fallback_level", None)
     defaults.update(overrides)
     result = IdentData(
         artist=defaults["result_artist"],

@@ -62,7 +62,7 @@ Weights live in `_get_weights(is_va: bool)`.
 
 - Strips diacritics (`Café` → `Cafe`)
 - Expands abbreviations (`Pt.` → `part`, `Vol.` → `volume`, `&` → `and`, `feat.` → `featuring`)
-- Normalizes roman numerals II-X (`Part II` → `Part 2`; single-char romans like `V` are intentionally NOT normalized because they false-positive on `V.A.` and similar)
+- Normalizes multi-character roman numerals II-X (`Part II` → `Part 2`). Single-character romans (`I`, `V`, `X`) are intentionally NOT normalized because they false-positive on real words and on `V.A.` and similar abbreviations.
 - Drops stopwords (`the`, `a`, `an`) so `The Wall` matches `Wall`
 - Lowercases and collapses whitespace
 
@@ -88,7 +88,7 @@ Chain construction is in `src/salmon/search/discogs.py::_build_fallback_chain` a
 
 ## Sentinel artist detection
 
-`is_sentinel_artist(artist)` (in `scoring.py`) returns `True` for `"Unknown Artist"`, `"Various"`, `"Various Artists"`, `"VA"`, `"V.A."`, `"Anonymous"`, `"No Artist"`, and empty strings. Used by fallback chain builders to decide whether to emit Tier 1 chains — sentinel artists go straight to Tier 2 because passing `artist="Unknown Artist"` as a provider filter returns zero results.
+`is_sentinel_artist(artist)` (in `scoring.py`) returns `True` for `"Unknown Artist"`, `"Unknown"`, `"Various"`, `"Various Artists"`, `"VA"`, `"V.A."`, `"Anonymous"`, `"No Artist"`, and empty strings. Used by fallback chain builders to decide whether to emit Tier 1 chains — sentinel artists go straight to Tier 2 because passing `artist="Unknown Artist"` as a provider filter returns zero results. Also used by `_detect_va` in `src/salmon/tagger/metadata.py` to identify VA releases without false-matching real artists like "Various Production" (a UK dubstep act).
 
 Note that `is_sentinel_artist` and `_detect_va` (in `src/salmon/tagger/metadata.py`) are intentionally separate:
 

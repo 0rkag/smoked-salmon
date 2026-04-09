@@ -11,6 +11,7 @@ import msgspec
 from salmon import cfg
 from salmon.common import handle_scrape_errors, make_searchstrs, re_strip
 from salmon.search import SEARCHSOURCES, run_metasearch
+from salmon.search.scoring import is_sentinel_artist
 from salmon.tagger.combine import combine_metadatas
 from salmon.tagger.sources import METASOURCES
 from salmon.tagger.sources.base import generate_artists
@@ -21,7 +22,11 @@ def _detect_va(main_artists: list[str]) -> bool:
 
     Triggers on:
       - Empty main-artist list.
-      - Any artist containing the substring "various" (case-insensitive).
+      - Any artist name that matches the known placeholder set
+        ("Various", "Various Artists", "VA", "V.A.", "Unknown Artist",
+        "Unknown", "Anonymous", "No Artist") — see `is_sentinel_artist`.
+        Real artist names that happen to contain "various" as a word
+        (e.g. "Various Production" — UK dubstep) are NOT matched.
       - 6 or more distinct main artists (a sextet is more likely a
         compilation than a single band).
 
@@ -30,7 +35,7 @@ def _detect_va(main_artists: list[str]) -> bool:
     """
     if not main_artists:
         return True
-    if any("various" in a.lower() for a in main_artists):
+    if any(is_sentinel_artist(a) for a in main_artists):
         return True
     # NOTE: Intentionally NOT reusing `cfg.upload.formatting.various_artist_threshold`
     # (default 4). That config governs how releases are *displayed/formatted*
@@ -108,8 +113,8 @@ def _print_search_results(results, rls_data=None):
         if releases:
             click.secho(f"\nResults for {source}:", fg="yellow", bold=True)
             not_found.remove(source)
-            results = dict(islice(releases.items(), cfg.upload.search.limit))
-            for rls_id, release in results.items():
+            limited = dict(islice(releases.items(), cfg.upload.search.limit))
+            for rls_id, release in limited.items():
                 choices[choice_id] = (source, rls_id)
                 url = SEARCHSOURCES[source].Searcher.format_url(rls_id)
                 click.secho(f"> {choice_id:02d} {release.formatted} | {url}")
@@ -296,11 +301,15 @@ def fix_hardcore_genre(metadata):
 
 
 def remove_various_artists(tracks):
+    """Drop literal "Various Artists" / "Various" placeholders from per-track
+    artist lists. These are noise that scrapers sometimes emit for VA comps.
+    """
     for _dnum, disc in tracks.items():
         for _tnum, track in disc.items():
             artists = []
             for artist, importance in track["artists"]:
-                if "various artists" not in artist.lower() or artist.lower().strip() != "various":
+                normalized = artist.lower().strip()
+                if "various artists" not in normalized and normalized != "various":
                     artists.append((artist, importance))
             track["artists"] = artists
 
