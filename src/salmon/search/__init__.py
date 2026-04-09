@@ -166,16 +166,13 @@ async def run_metasearch(
 def _score_and_filter_results(
     results: dict[Any, SearchResult],
     tag: TagData,
-) -> dict[Any, tuple[Any, str]]:
+) -> dict[Any, SearchResult]:
     """Score results against tag metadata and filter by threshold."""
-    scored: list[tuple[Any, Any, float]] = []
+    scored: list[tuple[Any, SearchResult, float]] = []
 
     for rls_id, result in results.items():
-        ident_data = result.ident
-        formatted_str = result.formatted
-
-        s = score_result(ident_data, tag)
-        scored.append((rls_id, (ident_data, formatted_str), s))
+        s = score_result(result.ident, tag)
+        scored.append((rls_id, result, s))
 
     # Sort by score descending
     scored.sort(key=lambda x: x[2], reverse=True)
@@ -183,6 +180,6 @@ def _score_and_filter_results(
     # Filter by threshold unless show_all_results is set
     threshold = cfg.upload.search.min_score_threshold
     if not cfg.upload.search.show_all_results:
-        scored = [(rid, data, s) for rid, data, s in scored if s >= threshold]
+        scored = [(rid, r, s) for rid, r, s in scored if s >= threshold]
 
-    return {rid: data for rid, data, _ in scored}
+    return {rid: r for rid, r, _ in scored}

@@ -112,7 +112,7 @@ def _print_search_results(results, rls_data=None):
             for rls_id, release in results.items():
                 choices[choice_id] = (source, rls_id)
                 url = SEARCHSOURCES[source].Searcher.format_url(rls_id)
-                click.secho(f"> {choice_id:02d} {release[1]} | {url}")
+                click.secho(f"> {choice_id:02d} {release.formatted} | {url}")
                 choice_id += 1
         if releases is None:
             inactive_sources.append(source)

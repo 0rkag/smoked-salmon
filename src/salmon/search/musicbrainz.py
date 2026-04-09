@@ -10,6 +10,20 @@ from salmon.search.scoring import FallbackLevel, is_sentinel_artist
 from salmon.sources import MusicBrainzBase
 
 
+def _parse_mb_date(date_str: str | None) -> int | None:
+    """Extract a 4-digit year from a MusicBrainz date string.
+
+    MB dates can be 'YYYY', 'YYYY-MM', or 'YYYY-MM-DD'. Returns None for
+    missing or unparseable values.
+    """
+    if not date_str:
+        return None
+    try:
+        return int(date_str[:4])
+    except (ValueError, TypeError):
+        return None
+
+
 class Searcher(MusicBrainzBase, SearchMixin):
     async def search_releases(self, searchstr: str, limit: int, **kwargs) -> tuple[str, dict[str, Any]]:
         artist = kwargs.get("artist")
@@ -64,11 +78,11 @@ class Searcher(MusicBrainzBase, SearchMixin):
                 if rls_label.lower() not in cfg.upload.search.excluded_labels:
                     releases[rls["id"]] = SearchResult(
                         ident=IdentData(
-                            artists,
-                            rls["title"],
-                            None,
-                            track_count,
-                            source or "",
+                            artist=artists,
+                            album=rls["title"],
+                            year=_parse_mb_date(rls.get("date")),
+                            track_count=track_count,
+                            source=source or "",
                             label=rls_label or None,
                             catno=rls_catno or None,
                         ),
