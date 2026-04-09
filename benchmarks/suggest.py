@@ -389,13 +389,13 @@ def classify(
     second_score: float,
     top_url: str | None,
     master_cache: dict[str, set[str]],
-    oracle_provider: str,
+    oracle_provider: str | None,
     *,
     min_score: float,
     margin: float,
 ) -> Suggestion | None:
     """Classify a provider's enriched-query result into a suggestion."""
-    if provider == oracle_provider:
+    if oracle_provider is not None and provider == oracle_provider:
         return None
 
     n_results = len(results)
@@ -704,23 +704,40 @@ async def _run_async(args: argparse.Namespace) -> int:
     for entry in entries:
         print(f"\n=== {entry.slug} ===")
 
-        oracle_data, oracle_provider = await scrape_oracle(
-            entry,
-            args.oracle_cache_dir,
-            master_cache,
-            refresh=args.refresh,
-            verbose=args.verbose,
-        )
-        if not oracle_data or not oracle_provider:
-            print(f"  ! {entry.slug}: no oracle available, skipping")
-            continue
+        # An oracle is only possible when the entry already has at least
+        # one ground-truth URL. For un-validated entries (e.g. fresh
+        # captures from capture_tree.py with empty ground_truth), fall
+        # back to the raw tag_data — any high-confidence match found
+        # against an unlabeled provider still becomes an ADD suggestion.
+        if entry.ground_truth:
+            oracle_data, oracle_provider = await scrape_oracle(
+                entry,
+                args.oracle_cache_dir,
+                master_cache,
+                refresh=args.refresh,
+                verbose=args.verbose,
+            )
+        else:
+            oracle_data, oracle_provider = None, None
 
-        enriched_tag = build_enriched_tag(entry, oracle_data)
-        print(
-            f"  enriched: artist={enriched_tag.artist!r} album={enriched_tag.album!r} "
-            f"year={enriched_tag.year} label={enriched_tag.label!r} catno={enriched_tag.catno!r} "
-            f"track_count={enriched_tag.track_count}"
-        )
+        if oracle_data and oracle_provider:
+            enriched_tag = build_enriched_tag(entry, oracle_data)
+            print(
+                f"  enriched: artist={enriched_tag.artist!r} album={enriched_tag.album!r} "
+                f"year={enriched_tag.year} label={enriched_tag.label!r} catno={enriched_tag.catno!r} "
+                f"track_count={enriched_tag.track_count}"
+            )
+        else:
+            if entry.ground_truth:
+                print(f"  ! {entry.slug}: no oracle available, falling back to raw tag_data")
+            else:
+                print(f"  {entry.slug}: no ground truth yet, querying with raw tag_data")
+            enriched_tag = _run.build_tag_data(entry)
+            print(
+                f"  raw: artist={enriched_tag.artist!r} album={enriched_tag.album!r} "
+                f"year={enriched_tag.year} label={enriched_tag.label!r} catno={enriched_tag.catno!r} "
+                f"track_count={enriched_tag.track_count}"
+            )
 
         for provider_name in SEARCHSOURCES:
             if provider_name == oracle_provider:
