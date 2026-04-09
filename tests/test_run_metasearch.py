@@ -177,3 +177,49 @@ class TestRunMetasearch:
                 apply_filter=False,
             )
         assert results.get("FakeActive"), "expected results when apply_filter=False"
+
+
+class TestScoreAndFilterTiebreaker:
+    """Direct unit tests for _score_and_filter_results' sort ordering,
+    specifically the FallbackLevel tiebreaker when scores are equal.
+    """
+
+    def _make_result(self, rls_id: str, fallback_level: FallbackLevel) -> SearchResult:
+        return SearchResult(
+            ident=IdentData(
+                artist="Same Artist",
+                album="Same Album",
+                year=2020,
+                track_count=10,
+                source="WEB",
+                label="Same Label",
+                catno="SAME001",
+            ),
+            formatted=f"formatted-{rls_id}",
+            fallback_level=fallback_level,
+        )
+
+    def test_structured_beats_free_text_on_equal_score(self):
+        """When two results produce identical scores, the one with a lower
+        fallback_level (more structured) must rank first."""
+        from salmon.search import _score_and_filter_results
+        from salmon.search.scoring import TagData
+
+        # Both results are structurally identical, so they score the same.
+        # The only difference is fallback_level.
+        free_text = self._make_result("free_id", FallbackLevel.FREE_TEXT)
+        structured = self._make_result("structured_id", FallbackLevel.STRUCTURED)
+
+        # Deliberately pass the free-text one first so dict insertion order
+        # doesn't accidentally give the correct answer.
+        results = {"free_id": free_text, "structured_id": structured}
+        tag = TagData(
+            artist="Same Artist", album="Same Album", year=2020,
+            track_count=10, source="WEB", label="Same Label", catno="SAME001",
+        )
+
+        filtered = _score_and_filter_results(results, tag)
+        keys = list(filtered.keys())
+        assert keys[0] == "structured_id", (
+            f"expected structured to beat free-text on tie; got order {keys}"
+        )
