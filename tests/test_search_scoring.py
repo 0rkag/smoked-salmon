@@ -261,8 +261,14 @@ class TestLabelAsArtistCredit:
             tag_label=None,
             result_artist="Hostom",
         )
-        # Standard mismatch behavior — artist scores 0
-        assert s < 80.0
+        # Standard mismatch behavior — artist scores partial (rapidfuzz
+        # WRatio gives ~0.45 for "Unknown Artist" vs "Hostom" via partial
+        # token overlap). The point of this test is that no cross-field
+        # label credit is added; the artist still fails to reach a
+        # credited match score of 100. Bound relaxed from 80 -> 90 after
+        # migrating from token-Jaccard to rapidfuzz, which is more
+        # generous on short-token overlaps.
+        assert s < 90.0
 
     def test_no_credit_when_result_artist_unrelated_to_label(self):
         # If result.artist doesn't match tag.label, no credit applies.
@@ -273,11 +279,14 @@ class TestLabelAsArtistCredit:
             result_label="Hostom",
         )
         # Standard mismatch behavior — no cross-field credit applies.
-        # "Some Other Artist" vs "Unknown Artist" has an incidental token
-        # overlap on "Artist" (~0.33), and the cross-field check against
-        # "Hostom" yields 0, so the artist field only gets its natural
-        # weak score — well below the 100 a credited match would produce.
-        assert s < 90.0
+        # "Some Other Artist" vs "Unknown Artist" has token overlap on
+        # "Artist" plus partial-ratio boost from rapidfuzz WRatio
+        # (~0.57), and the cross-field check against "Hostom" yields 0,
+        # so the artist field only gets its natural weak score — still
+        # well below the 100 a credited match would produce. Bound
+        # relaxed from 90 -> 95 after migrating from token-Jaccard to
+        # rapidfuzz, which is more generous on short-token overlaps.
+        assert s < 95.0
 
     def test_credit_does_not_apply_when_artist_match_strong(self):
         # When the standard artist match is already > 0.5, cross-field
@@ -327,3 +336,45 @@ class TestIsSentinelArtist:
         # "Variously" is NOT a sentinel
         from salmon.search.scoring import is_sentinel_artist
         assert is_sentinel_artist("Variously") is False
+
+
+class TestFuzzyImprovements:
+    """Regression tests for the rapidfuzz + normalization upgrade."""
+
+    def test_roman_numeral_equivalence(self):
+        from salmon.search.scoring import _fuzzy_album
+        assert _fuzzy_album("Part II", "Pt. 2") >= 0.85
+
+    def test_volume_abbreviation_equivalence(self):
+        from salmon.search.scoring import _fuzzy_album
+        assert _fuzzy_album("Vol. 1", "Volume 1") >= 0.85
+
+    def test_the_stopword_handling(self):
+        from salmon.search.scoring import _fuzzy_album
+        assert _fuzzy_album("The Wall", "Wall") >= 0.85
+
+    def test_ampersand_equivalence(self):
+        from salmon.search.scoring import _fuzzy_artist
+        assert _fuzzy_artist("Jay-Z & Kanye West", "Jay-Z and Kanye West") >= 0.85
+
+    def test_volume_with_numeral(self):
+        from salmon.search.scoring import _fuzzy_album
+        assert _fuzzy_album("Greatest Hits, Vol. 2", "Greatest Hits, Volume 2") >= 0.95
+
+    def test_no_spurious_matches(self):
+        """Unrelated titles should still score low."""
+        from salmon.search.scoring import _fuzzy_album
+        assert _fuzzy_album("Burial", "Taylor Swift") < 0.5
+
+    def test_normalize_abbreviations(self):
+        from salmon.search.scoring import _normalize_abbreviations
+        assert "part" in _normalize_abbreviations("Pt. 2")
+        assert "volume" in _normalize_abbreviations("Vol. 1")
+        assert "and" in _normalize_abbreviations("Jay & Beyoncé")
+
+    def test_normalize_romans(self):
+        from salmon.search.scoring import _normalize_romans
+        assert _normalize_romans("Part II") == "Part 2"
+        assert _normalize_romans("Vol III") == "Vol 3"
+        # Do not mangle words that look like roman numerals
+        assert _normalize_romans("Paradise City") == "Paradise City"  # no change, no roman
