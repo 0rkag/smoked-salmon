@@ -24,3 +24,4 @@ accounts.json
 salmon/web/static/specs
 !.gitkeep
 .venv
+benchmarks/
