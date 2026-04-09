@@ -31,8 +31,6 @@ class Searcher(MusicBrainzBase, SearchMixin):
         year = kwargs.get("year")
         label = kwargs.get("label")
         catno = kwargs.get("catno")
-        release_type = kwargs.get("release_type")
-        is_va = kwargs.get("is_va", False)
 
         releases = {}
         result, fallback_level = await self._structured_search(
@@ -43,8 +41,6 @@ class Searcher(MusicBrainzBase, SearchMixin):
             year=year,
             label=label,
             catno=catno,
-            release_type=release_type,
-            is_va=is_va,
         )
         for rls in result.get("release-list", []):
             try:
@@ -111,8 +107,6 @@ class Searcher(MusicBrainzBase, SearchMixin):
         year,
         label,
         catno,
-        release_type,
-        is_va,
     ):
         """Try structured params with fallback chain."""
         chains = self._build_fallback_chain(
@@ -122,8 +116,6 @@ class Searcher(MusicBrainzBase, SearchMixin):
             year=year,
             label=label,
             catno=catno,
-            release_type=release_type,
-            is_va=is_va,
         )
         for search_kwargs, level in chains:
             result = await asyncio.to_thread(musicbrainzngs.search_releases, limit=limit, **search_kwargs)
@@ -132,7 +124,7 @@ class Searcher(MusicBrainzBase, SearchMixin):
         return {"release-list": []}, FallbackLevel.FREE_TEXT
 
     @staticmethod
-    def _build_fallback_chain(searchstr, *, artist, album, year, label, catno, release_type, is_va):
+    def _build_fallback_chain(searchstr, *, artist, album, year, label, catno):
         """Build (kwargs, FallbackLevel) pairs from most structured to loosest.
 
         Tier 1 - artist-anchored: only when the artist identifies someone
@@ -142,8 +134,6 @@ class Searcher(MusicBrainzBase, SearchMixin):
         Tier 2b - bare album: when neither artist nor label help.
         Tier 3 - free text: final catch-all.
         """
-        # is_va and release_type kept for API compat
-        del is_va, release_type
         has_real_artist = bool(artist) and not is_sentinel_artist(artist)
 
         chains: list[tuple[dict, FallbackLevel]] = []

@@ -27,7 +27,6 @@ class Searcher(DiscogsBase, SearchMixin):
         year = kwargs.get("year")
         label = kwargs.get("label")
         catno = kwargs.get("catno")
-        is_va = kwargs.get("is_va", False)
 
         results, fallback_level = await self._structured_search(
             searchstr,
@@ -37,7 +36,6 @@ class Searcher(DiscogsBase, SearchMixin):
             year=year,
             label=label,
             catno=catno,
-            is_va=is_va,
         )
 
         for rls in results:
@@ -73,7 +71,7 @@ class Searcher(DiscogsBase, SearchMixin):
                 break
         return "Discogs", releases
 
-    async def _structured_search(self, searchstr, limit, *, artist, album, year, label, catno, is_va):
+    async def _structured_search(self, searchstr, limit, *, artist, album, year, label, catno):
         """Try structured params with fallback chain."""
         chains = self._build_fallback_chain(
             searchstr,
@@ -82,7 +80,6 @@ class Searcher(DiscogsBase, SearchMixin):
             year=year,
             label=label,
             catno=catno,
-            is_va=is_va,
         )
         for params, level in chains:
             resp = await self.get_json(
@@ -94,7 +91,7 @@ class Searcher(DiscogsBase, SearchMixin):
         return [], FallbackLevel.LOOSE
 
     @staticmethod
-    def _build_fallback_chain(searchstr, *, artist, album, year, label, catno, is_va):
+    def _build_fallback_chain(searchstr, *, artist, album, year, label, catno):
         """Build (params, FallbackLevel) pairs from most structured to loosest.
 
         Tier 1 - artist-anchored: only when the artist identifies someone
@@ -105,8 +102,6 @@ class Searcher(DiscogsBase, SearchMixin):
         Tier 3 - free text: final catch-all.
         Tier 3b - accent-normalized free text: last resort for non-ASCII titles.
         """
-        # is_va kept for API compat; see is_sentinel_artist
-        del is_va
         artist = _clean_artist(artist) if artist else None
         album = _clean_album(album) if album else None
         has_real_artist = bool(artist) and not is_sentinel_artist(artist)

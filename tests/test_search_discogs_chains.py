@@ -10,7 +10,6 @@ def _build(**kwargs):
         year=None,
         label=None,
         catno=None,
-        is_va=False,
     )
     defaults.update(kwargs)
     return Searcher._build_fallback_chain(**defaults)
