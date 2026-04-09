@@ -129,8 +129,16 @@ class TestFuzzyArtist:
     def test_identical(self):
         assert _fuzzy_artist("The Beatles", "The Beatles") == 1.0
 
-    def test_token_overlap(self):
-        assert 0 < _fuzzy_artist("Beatles", "The Beatles") < 1.0
+    def test_stopword_equivalence(self):
+        # "The" is stripped by _normalize so these compare as identical.
+        # Replaces the prior token-overlap assertion that expected a
+        # partial match — under the stopword-aware normalizer, "Beatles"
+        # and "The Beatles" are canonically the same.
+        assert _fuzzy_artist("Beatles", "The Beatles") == 1.0
+
+    def test_partial_mismatch(self):
+        # Sanity check that unrelated names still score low.
+        assert _fuzzy_artist("Beatles", "Rolling Stones") < 0.5
 
 
 class TestMatchYear:
