@@ -248,8 +248,21 @@ def _normalize_romans(s: str) -> str:
     return _ROMAN_PATTERN.sub(_replace, s)
 
 
+# Stopwords stripped by `_normalize` so "The Wall" and "Wall" compare as
+# identical. Kept deliberately small — aggressive stopword lists cause real
+# titles like "A Love Supreme" to lose load-bearing content.
+_STOPWORDS = frozenset({"the", "a", "an"})
+
+
+def _strip_stopwords(s: str) -> str:
+    """Drop leading articles from a lowercased, tokenized string."""
+    tokens = [t for t in s.split() if t not in _STOPWORDS]
+    return " ".join(tokens) if tokens else s  # preserve the original if all tokens stripped
+
+
 def _normalize(s: str) -> str:
-    """Lowercase, strip diacritics, expand abbreviations, normalize romans."""
+    """Lowercase, strip diacritics, expand abbreviations, normalize romans,
+    and drop stopwords."""
     if not s:
         return ""
     # Strip diacritics first so downstream regexes see ASCII.
@@ -265,15 +278,20 @@ def _normalize(s: str) -> str:
     s = re.sub(r"[^\w\s]", " ", s)
     # Collapse whitespace.
     s = re.sub(r"\s+", " ", s).strip()
+    # Drop stopwords (last, so they don't interfere with earlier patterns).
+    s = _strip_stopwords(s)
     return s
 
 
 def _fuzzy_album(a: str, b: str) -> float:
     """Compute album title similarity 0.0-1.0.
 
-    Uses rapidfuzz token_set_ratio after strip_album_noise + _normalize.
-    token_set_ratio handles stopwords ("The Wall" vs "Wall"), word
-    reordering, and is insensitive to duplicate tokens.
+    Uses rapidfuzz token_sort_ratio after strip_album_noise + _normalize.
+    token_sort_ratio is reorder-tolerant but — unlike token_set_ratio —
+    does NOT treat a token-set subset as a perfect match. That distinction
+    matters: "Chronic" should not be a 100% match for "Chronic Girl".
+    Stopwords ("the", "a", "an") are dropped in `_normalize`, so
+    "The Wall" and "Wall" still collapse to the same normalized form.
     """
     a_n = _normalize(strip_album_noise(a))
     b_n = _normalize(strip_album_noise(b))
@@ -281,15 +299,17 @@ def _fuzzy_album(a: str, b: str) -> float:
         return 0.0
     if a_n == b_n:
         return 1.0
-    return _fuzz.token_set_ratio(a_n, b_n) / 100.0
+    return _fuzz.token_sort_ratio(a_n, b_n) / 100.0
 
 
 def _fuzzy_artist(a: str, b: str) -> float:
     """Compute artist name similarity 0.0-1.0.
 
-    Uses rapidfuzz WRatio which combines token_sort_ratio,
-    partial_ratio, and token_set_ratio -- designed for short,
-    reorder-tolerant identifier strings.
+    Uses rapidfuzz token_sort_ratio after stopword-aware `_normalize`.
+    Chose token_sort_ratio over WRatio because WRatio blends in
+    token_set_ratio which treats "Various" as a perfect match for
+    "Various Artists" (correct for that case) but also treats "Ivan"
+    as a perfect match for "Ivan Gafer" (wrong — we want a penalty).
     """
     a_n = _normalize(a)
     b_n = _normalize(b)
@@ -297,7 +317,7 @@ def _fuzzy_artist(a: str, b: str) -> float:
         return 0.0
     if a_n == b_n:
         return 1.0
-    return _fuzz.WRatio(a_n, b_n) / 100.0
+    return _fuzz.token_sort_ratio(a_n, b_n) / 100.0
 
 
 def _fuzzy_normalize(a: str, b: str) -> float:
