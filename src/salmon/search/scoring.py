@@ -14,6 +14,12 @@ from typing import TYPE_CHECKING
 import msgspec
 from rapidfuzz import fuzz as _fuzz
 
+from salmon.common.strings import (
+    normalize_abbreviations,
+    normalize_romans,
+    strip_stopwords,
+)
+
 if TYPE_CHECKING:
     from salmon.search.base import IdentData
 
@@ -187,79 +193,6 @@ def strip_album_noise(s: str) -> str:
     return s.strip()
 
 
-# Roman numeral -> Arabic digit mapping for normalization. Covers the
-# most common release-title cases (I-X). Intentionally limited to avoid
-# false positives on real words like "II" (actually ambiguous -- but in
-# album-title contexts, "II" is nearly always a number).
-_ROMAN_NUMERALS = {
-    "i": "1",
-    "ii": "2",
-    "iii": "3",
-    "iv": "4",
-    "v": "5",
-    "vi": "6",
-    "vii": "7",
-    "viii": "8",
-    "ix": "9",
-    "x": "10",
-}
-
-# Common abbreviations in release titles. Pattern: match as a whole word
-# (word-boundary), normalize to canonical form. These run BEFORE
-# punctuation stripping so trailing dots in "Pt." / "Vol." are captured.
-_ABBREVIATIONS = [
-    (re.compile(r"\bpt\.?\b", re.IGNORECASE), "part"),
-    (re.compile(r"\bvol\.?\b", re.IGNORECASE), "volume"),
-    (re.compile(r"\bno\.?\b", re.IGNORECASE), "number"),
-    (re.compile(r"\bft\.?\b", re.IGNORECASE), "featuring"),
-    (re.compile(r"\bfeat\.?\b", re.IGNORECASE), "featuring"),
-    (re.compile(r"\bep\b", re.IGNORECASE), ""),  # drop "EP" marker
-    (re.compile(r"\s+&\s+"), " and "),  # explicit ampersand with spaces
-    (re.compile(r"&"), " and "),  # any other ampersand
-]
-
-
-def _normalize_abbreviations(s: str) -> str:
-    """Expand common abbreviations so fuzzy matching sees canonical forms.
-
-    "Pt. 2" -> "part 2"
-    "Vol. 1" -> "volume 1"
-    "Jay-Z & Kanye" -> "Jay-Z and Kanye"
-    """
-    for pattern, replacement in _ABBREVIATIONS:
-        s = pattern.sub(replacement, s)
-    return s
-
-
-_ROMAN_PATTERN = re.compile(
-    r"\b(?:" + "|".join(sorted(_ROMAN_NUMERALS, key=len, reverse=True)) + r")\b",
-    re.IGNORECASE,
-)
-
-
-def _normalize_romans(s: str) -> str:
-    """Replace standalone roman numerals I-X with their Arabic equivalents.
-
-    Only matches word-boundary tokens to avoid mangling real words like
-    "in", "it", "vim" that happen to contain roman numeral characters.
-    """
-    def _replace(match: re.Match[str]) -> str:
-        return _ROMAN_NUMERALS[match.group(0).lower()]
-    return _ROMAN_PATTERN.sub(_replace, s)
-
-
-# Stopwords stripped by `_normalize` so "The Wall" and "Wall" compare as
-# identical. Kept deliberately small — aggressive stopword lists cause real
-# titles like "A Love Supreme" to lose load-bearing content.
-_STOPWORDS = frozenset({"the", "a", "an"})
-
-
-def _strip_stopwords(s: str) -> str:
-    """Drop leading articles from a lowercased, tokenized string."""
-    tokens = [t for t in s.split() if t not in _STOPWORDS]
-    return " ".join(tokens) if tokens else s  # preserve the original if all tokens stripped
-
-
 def _normalize(s: str) -> str:
     """Lowercase, strip diacritics, expand abbreviations, normalize romans,
     and drop stopwords."""
@@ -271,15 +204,15 @@ def _normalize(s: str) -> str:
     # Expand abbreviations BEFORE stripping punctuation so "Pt." and
     # "Vol." patterns can still match their trailing dots, and so "&"
     # is still present when the ampersand rules run.
-    s = _normalize_abbreviations(s)
-    s = _normalize_romans(s)
+    s = normalize_abbreviations(s)
+    s = normalize_romans(s)
     s = s.lower()
     # Strip remaining punctuation (keep word chars + whitespace).
     s = re.sub(r"[^\w\s]", " ", s)
     # Collapse whitespace.
     s = re.sub(r"\s+", " ", s).strip()
     # Drop stopwords (last, so they don't interfere with earlier patterns).
-    s = _strip_stopwords(s)
+    s = strip_stopwords(s)
     return s
 
 
