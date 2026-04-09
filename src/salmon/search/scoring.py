@@ -54,8 +54,10 @@ def is_sentinel_artist(artist: str | None) -> bool:
 class FallbackLevel(IntEnum):
     """How closely a search result matched the structured query.
 
-    Lower values = more structured match. Currently informational only;
-    kept as a sort-tiebreaker hook for future use.
+    Lower values = more structured match. Used by
+    `_score_and_filter_results` as a sort tiebreaker: when two results
+    tie on score, the one with the lower `FallbackLevel` ranks first
+    (structured matches beat free-text matches on equal scores).
     """
 
     STRUCTURED = 0  # Full structured query matched directly

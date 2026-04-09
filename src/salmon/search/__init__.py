@@ -167,15 +167,22 @@ def _score_and_filter_results(
     results: dict[Any, SearchResult],
     tag: TagData,
 ) -> dict[Any, SearchResult]:
-    """Score results against tag metadata and filter by threshold."""
+    """Score results against tag metadata and filter by threshold.
+
+    Results are sorted by score descending, with `fallback_level` as a
+    secondary key: when two results tie on score, the one from a more
+    structured provider query (lower `FallbackLevel` int value) ranks first.
+    This gives STRUCTURED matches precedence over FREE_TEXT matches when
+    the scorer can't otherwise distinguish them.
+    """
     scored: list[tuple[Any, SearchResult, float]] = []
 
     for rls_id, result in results.items():
         s = score_result(result.ident, tag)
         scored.append((rls_id, result, s))
 
-    # Sort by score descending
-    scored.sort(key=lambda x: x[2], reverse=True)
+    # Sort by (score desc, fallback_level asc) — structured matches win ties.
+    scored.sort(key=lambda x: (-x[2], int(x[1].fallback_level)))
 
     # Filter by threshold unless show_all_results is set
     threshold = cfg.upload.search.min_score_threshold
